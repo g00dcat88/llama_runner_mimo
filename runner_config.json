@@ -1,0 +1,43 @@
+{
+  "llama_root": "C:\\llama.cpp",
+  "models_dir": "C:\\llama.cpp\\models",
+  "models_dirs": [
+    "C:\\llama.cpp\\models",
+    "F:\\Models"
+  ],
+  "custom_models": [],
+  "server_exe": "C:\\llama.cpp\\llama-server.exe",
+  "selected_model": "F:\\Models\\lmstudio-community\\gemma-4-26B-A4B-it-QAT-GGUF\\gemma-4-26B-A4B-it-QAT-Q4_0.gguf",
+  "profiles": {},
+  "settings": {
+    "host": "127.0.0.1",
+    "port": 8080,
+    "ctx_size": 8192,
+    "gpu_layers": "auto",
+    "threads": -1,
+    "batch_size": 2048,
+    "ubatch_size": 512,
+    "flash_attn": "auto",
+    "cache_type_k": "f16",
+    "cache_type_v": "f16",
+    "temperature": 0.7,
+    "top_k": 40,
+    "top_p": 0.9,
+    "min_p": 0.05,
+    "repeat_penalty": 1.08,
+    "presence_penalty": 0,
+    "frequency_penalty": 0,
+    "max_tokens": 1024,
+    "seed": -1,
+    "reasoning": "auto",
+    "reasoning_budget": -1,
+    "mmap": true,
+    "mlock": false,
+    "kv_offload": true,
+    "webui": true,
+    "system_prompt": "Ты полезный локальный ассистент. Отвечай точно и по делу.",
+    "extra_args": "",
+    "mmproj": "",
+    "orchestrator_api_key": "hermes_secret_api_key_2026"
+  }
+}

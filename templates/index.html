@@ -1,0 +1,2239 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Llama Runner - Премиум Панель управления</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+    <!-- Google Fonts (Inter) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Marked.js (Markdown) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Highlight.js (Code Syntax Highlighting) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        slate: {
+                            850: '#151f32',
+                            900: '#0b132b',
+                            955: '#040712',
+                        },
+                        emerald: {
+                            500: '#10b981',
+                            600: '#059669',
+                            700: '#047857',
+                        }
+                    },
+                    boxShadow: {
+                        'glass-emerald': '0 0 25px -5px rgba(16, 185, 129, 0.15), 0 0 15px -5px rgba(16, 185, 129, 0.05)',
+                        'glow-emerald': '0 0 15px 2px rgba(16, 185, 129, 0.4)',
+                        'glow-amber': '0 0 15px 2px rgba(245, 158, 11, 0.4)',
+                        'glow-red': '0 0 15px 2px rgba(239, 68, 68, 0.4)',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #040712;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.04) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(20, 184, 166, 0.04) 0px, transparent 50%);
+        }
+        
+        /* Glassmorphism custom classes */
+        .glass-panel {
+            background: rgba(11, 19, 43, 0.45);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+        .glass-panel-light {
+            background: rgba(30, 41, 59, 0.35);
+            border: 1px solid rgba(255, 255, 255, 0.03);
+        }
+        .glass-card-active {
+            background: rgba(16, 185, 129, 0.07);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            box-shadow: 0 0 20px -5px rgba(16, 185, 129, 0.15);
+        }
+        
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(5, 8, 20, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(16, 185, 129, 0.4);
+        }
+        
+        .chat-msg {
+            animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .glow-pulse-emerald {
+            animation: pulseGlowEmerald 2s infinite;
+        }
+        @keyframes pulseGlowEmerald {
+            0%, 100% { box-shadow: 0 0 10px 1px rgba(16, 185, 129, 0.2); }
+            50% { box-shadow: 0 0 18px 4px rgba(16, 185, 129, 0.5); }
+        }
+        
+        .glow-pulse-amber {
+            animation: pulseGlowAmber 2s infinite;
+        }
+        @keyframes pulseGlowAmber {
+            0%, 100% { box-shadow: 0 0 10px 1px rgba(245, 158, 11, 0.2); }
+            50% { box-shadow: 0 0 18px 4px rgba(245, 158, 11, 0.5); }
+        }
+
+        /* Cursor typing indicator */
+        .typing-cursor {
+            display: inline-block;
+            width: 8px;
+            height: 15px;
+            background-color: #10b981;
+            margin-left: 2px;
+            animation: blink 0.8s steps(2, start) infinite;
+            vertical-align: middle;
+        }
+        @keyframes blink {
+            to { visibility: hidden; }
+        }
+
+        /* Custom range styling */
+        .custom-slider {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        .custom-slider::-webkit-slider-runnable-track {
+            background: rgba(255, 255, 255, 0.08);
+            height: 6px;
+            border-radius: 9999px;
+        }
+        .custom-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            background: #10b981;
+            height: 16px;
+            width: 16px;
+            border-radius: 9999px;
+            margin-top: -5px;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+            transition: transform 0.1s;
+        }
+        .custom-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        /* Toggle switch */
+        .switch-checkbox:checked + .switch-label {
+            background-color: #10b981;
+        }
+        .switch-checkbox:checked + .switch-label .switch-dot {
+            transform: translateX(100%);
+        }
+
+        /* Custom styles for prose (markdown elements) to prevent excessive vertical spacing */
+        .prose p {
+            margin-top: 0.5rem !important;
+            margin-bottom: 0.5rem !important;
+        }
+        .prose p:first-child {
+            margin-top: 0 !important;
+        }
+        .prose p:last-child {
+            margin-bottom: 0 !important;
+        }
+        .prose ul, .prose ol {
+            margin-top: 0.5rem !important;
+            margin-bottom: 0.5rem !important;
+            padding-left: 1.25rem !important;
+        }
+        .prose li {
+            margin-top: 0.25rem !important;
+            margin-bottom: 0.25rem !important;
+        }
+        .prose pre {
+            margin-top: 0.5rem !important;
+            margin-bottom: 0.5rem !important;
+        }
+    </style>
+</head>
+<body class="text-slate-100 h-screen overflow-hidden flex flex-col antialiased">
+
+    <!-- Header -->
+    <header class="glass-panel shrink-0 border-b border-white/5 z-40">
+        <div class="w-full px-6 py-3.5 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-slate-950 font-bold shadow-lg shadow-emerald-500/20 tracking-wider">🦙</div>
+                <div>
+                    <h1 class="text-base font-bold tracking-tight bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">Llama Runner</h1>
+                    <p class="text-[10px] text-slate-400 font-medium tracking-wide">Панель управления llama-server</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-4">
+                <!-- Mode Switcher -->
+                <div class="flex bg-slate-900/80 border border-white/5 p-1 rounded-xl gap-1">
+                    <button onclick="setMainMode('chat')" id="modeBtnChat" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-slate-955 shadow-md transition-all flex items-center gap-1.5 cursor-pointer">
+                        💬 Чат
+                    </button>
+                    <button onclick="setMainMode('orchestrator')" id="modeBtnOrchestrator" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 transition-all flex items-center gap-1.5 cursor-pointer">
+                        🤖 Оркестр
+                    </button>
+                </div>
+                <div class="h-6 w-px bg-white/10"></div>
+
+                <!-- Status Badge -->
+                <div id="statusBadge" class="flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-slate-900/80 border border-white/5 text-xs font-semibold text-slate-400 transition-all duration-300">
+                    <span class="w-2 h-2 rounded-full bg-slate-500"></span>
+                    <span id="statusText">Поиск статуса...</span>
+                </div>
+                
+                <div class="h-6 w-px bg-white/10"></div>
+                
+                <!-- Settings Trigger -->
+                <button onclick="openSettings()" class="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 border border-white/5 text-slate-300 hover:text-emerald-400 hover:bg-white/10 hover:border-emerald-500/30 transition-all text-xs font-medium" title="Настройки генерации">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    Настройки
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Layout -->
+    <div class="flex-1 flex w-full overflow-hidden relative">
+        
+        <!-- Sidebar -->
+        <aside class="w-80 border-r border-white/5 bg-slate-950/60 backdrop-blur-md flex flex-col shrink-0 h-full overflow-hidden z-20">
+            <!-- Chat Sidebar Container -->
+            <div id="chatSidebarContainer" class="flex-1 flex flex-col overflow-hidden">
+                <!-- Sidebar Tabs header -->
+            <div class="flex border-b border-white/5 text-xs font-semibold shrink-0">
+                <button onclick="setSidebarTab('models')" id="tabBtnModels" class="flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-450 transition-colors">
+                    Модели
+                </button>
+                <button onclick="setSidebarTab('chats')" id="tabBtnChats" class="flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors">
+                    Диалоги
+                </button>
+                <button onclick="setSidebarTab('folders')" id="tabBtnFolders" class="flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors">
+                    Папки
+                </button>
+            </div>
+
+            <!-- Tab: Models List -->
+            <div id="sidebarModelsTab" class="flex-1 flex flex-col overflow-hidden">
+                <!-- Search & Sort -->
+                <div class="p-4 border-b border-white/5 space-y-3 shrink-0">
+                    <div class="relative">
+                        <input id="modelSearch" type="text" oninput="handleModelSearch(this.value)" class="w-full bg-slate-900 border border-white/5 rounded-xl pl-9 pr-4 py-2.5 text-xs text-slate-200 placeholder-slate-500 focus:border-emerald-500/50 transition-all outline-none" placeholder="Поиск моделей...">
+                        <svg class="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    </div>
+                    <div class="flex items-center justify-between text-xs text-slate-400 px-1 font-medium">
+                        <span>Сортировка:</span>
+                        <select id="modelSort" onchange="handleModelSort(this.value)" class="bg-transparent text-emerald-400 font-semibold focus:outline-none cursor-pointer text-xs">
+                            <option value="params_desc" class="bg-slate-950 text-slate-300">Параметры (↓)</option>
+                            <option value="params_asc" class="bg-slate-950 text-slate-300">Параметры (↑)</option>
+                            <option value="size_desc" class="bg-slate-950 text-slate-300">Размер (↓)</option>
+                            <option value="size_asc" class="bg-slate-950 text-slate-300">Размер (↑)</option>
+                            <option value="name_asc" class="bg-slate-950 text-slate-300">Имя (А-Я)</option>
+                        </select>
+                    </div>
+                </div>
+                <!-- Models Container -->
+                <div id="modelList" class="flex-1 overflow-y-auto p-3 space-y-2.5">
+                    <div class="flex items-center justify-center h-32 text-xs text-slate-500">
+                        Идет загрузка моделей...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: Chats List -->
+            <div id="sidebarChatsTab" class="flex-1 flex flex-col overflow-hidden hidden">
+                <div class="p-3.5 border-b border-white/5 shrink-0 flex items-center justify-between">
+                    <span class="text-xs text-slate-400 font-bold uppercase tracking-wider">История сессий</span>
+                    <button onclick="createNewChatSession()" class="text-[11px] text-emerald-400 hover:text-emerald-350 font-bold transition-all flex items-center gap-1">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                        Создать
+                    </button>
+                </div>
+                <div id="chatsList" class="flex-1 overflow-y-auto p-3 space-y-2">
+                    <div class="flex items-center justify-center h-32 text-xs text-slate-500">
+                        Нет сохраненных сессий
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: Folder Scan Management -->
+            <div id="sidebarFoldersTab" class="flex-1 flex flex-col overflow-hidden hidden">
+                <div class="flex-1 overflow-y-auto p-4 space-y-6">
+                    <!-- Scan Directories -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2.5">
+                            <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Папки сканирования</h3>
+                            <button onclick="addNewFolder()" class="text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold transition-colors flex items-center gap-1">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                                Добавить
+                            </button>
+                        </div>
+                        <div id="foldersList" class="space-y-1.5">
+                            <!-- JS populated -->
+                        </div>
+                    </div>
+
+                    <!-- Custom files -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2.5">
+                            <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Индивидуальные модели</h3>
+                            <button onclick="addNewCustomModel()" class="text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold transition-colors flex items-center gap-1">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                                Загрузить
+                            </button>
+                        </div>
+                        <div id="customModelsList" class="space-y-1.5">
+                            <!-- JS populated -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Bottom Selected Model Info -->
+            <div class="p-4 border-t border-white/5 bg-slate-950/80 shrink-0">
+                <div class="text-[10px] text-slate-500 font-semibold uppercase tracking-wider mb-1">Выбранный файл модели</div>
+                <div class="text-xs font-semibold text-slate-300 truncate" id="selectedModelLabel">Модель не выбрана</div>
+            </div>
+            </div> <!-- Close chatSidebarContainer -->
+
+            <!-- Orchestrator Sidebar -->
+            <div id="orchestratorSidebar" class="flex-1 flex flex-col overflow-hidden hidden bg-slate-955/20">
+                <div class="p-4 border-b border-white/5 shrink-0 bg-slate-950/40 flex justify-between items-center">
+                    <span class="text-xs text-slate-400 font-bold uppercase tracking-wider">Навыки и обучение</span>
+                </div>
+                <!-- Skills List -->
+                <div id="skillsList" class="flex-1 overflow-y-auto p-3.5 space-y-2">
+                    <!-- Populated by JS -->
+                </div>
+                <!-- Tools list -->
+                <div class="p-4 border-t border-white/5 shrink-0 bg-slate-950/60">
+                    <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Активные инструменты</span>
+                    <div id="toolsList" class="mt-2.5 space-y-2">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Center: Chat -->
+        <main id="chatMain" class="flex-1 flex flex-col min-w-0 bg-slate-900/10 h-full overflow-hidden z-10">
+            <!-- Controls Bar -->
+            <div class="px-6 py-3.5 border-b border-white/5 bg-slate-950/20 flex items-center justify-between gap-4 shrink-0">
+                <div class="flex items-center gap-3">
+                    <button id="btnStart" onclick="startServer()" class="px-4.5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-950 text-xs font-bold rounded-xl transition-all shadow-md hover:shadow-emerald-500/10 flex items-center gap-2">
+                        <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        Запустить сервер
+                    </button>
+                    <button id="btnStop" onclick="stopServer()" class="px-4.5 py-2.5 bg-red-950/30 hover:bg-red-900/40 border border-red-500/10 hover:border-red-500/25 text-red-400 text-xs font-bold rounded-xl transition-all flex items-center gap-2">
+                        <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h12V5H6v14z"/></svg>
+                        Остановить
+                    </button>
+                    <div class="h-6 w-px bg-white/10"></div>
+                    <button onclick="newChat()" class="px-3.5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/5 rounded-xl text-slate-300 text-xs font-semibold transition-all">
+                        Очистить историю
+                    </button>
+                </div>
+                
+                <div class="flex items-center gap-4">
+                    <!-- Preset -->
+                    <div class="flex items-center gap-2 text-xs">
+                        <span class="text-slate-500">Пресет:</span>
+                        <select id="presetSelect" onchange="applyPreset()" class="bg-slate-900 border border-white/5 text-slate-300 rounded-xl px-3 py-1.5 focus:border-emerald-500/50 transition-all font-semibold outline-none text-xs cursor-pointer">
+                            <option value="Сбалансированный">Сбалансированный</option>
+                            <option value="Точный код">Точный код</option>
+                            <option value="Креативный">Креативный</option>
+                            <option value="Длинный контекст">Длинный контекст</option>
+                        </select>
+                    </div>
+
+                    <!-- Logs Toggle -->
+                    <button onclick="toggleLogs()" class="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 border border-white/5 hover:border-white/15 rounded-xl text-slate-400 hover:text-slate-200 transition-all text-xs font-medium">
+                        <span class="w-2 h-2 rounded-full bg-slate-500 transition-colors duration-500" id="logsIndicator"></span>
+                        Терминал
+                    </button>
+                </div>
+            </div>
+
+            <!-- Chat Container -->
+            <div id="chatArea" class="flex-1 overflow-y-auto px-8 py-6 space-y-6 min-h-0">
+                <!-- Welcome View -->
+                <div class="flex flex-col items-center justify-center h-full text-center max-w-lg mx-auto space-y-5">
+                    <div class="w-16 h-16 rounded-2xl bg-slate-900 border border-white/5 flex items-center justify-center text-3xl shadow-inner select-none transition-transform hover:scale-110 duration-300">🦙</div>
+                    <h2 class="text-base font-bold text-slate-200">Добро пожаловать в Llama Runner!</h2>
+                    <p class="text-sm text-slate-400 leading-relaxed max-w-md">
+                        Выберите модель в сайдбаре слева, настройте параметры генерации, запустите локальный сервер и начните беседу.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Input area -->
+            <div class="p-6 border-t border-white/5 bg-slate-950/20 backdrop-blur-md shrink-0">
+                <div class="max-w-4xl mx-auto flex gap-3.5 items-end">
+                    <div class="flex-1 relative glass-panel rounded-2xl overflow-hidden focus-within:border-emerald-500/30 transition-all">
+                        <textarea id="promptInput" rows="2" class="w-full bg-transparent border-0 px-4 py-3.5 text-sm text-slate-200 placeholder-slate-500 resize-none focus:ring-0 focus:outline-none" placeholder="Спросите что-нибудь у модели... (Ctrl+Enter для отправки)" onkeydown="handleKey(event)"></textarea>
+                    </div>
+                    <div class="flex gap-2">
+                        <!-- Abort/Stop Generating button -->
+                        <button id="btnAbort" onclick="abortGeneration()" class="px-5 py-3.5 bg-red-950/40 border border-red-500/20 text-red-400 text-sm font-bold rounded-2xl hover:bg-red-900/30 hover:border-red-500/40 transition-all flex items-center gap-2 h-[48px] hidden">
+                            <span class="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></span>
+                            Прервать
+                        </button>
+                        <button id="btnSend" onclick="sendMessage()" class="px-5 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-950 text-sm font-bold rounded-2xl transition-all hover:shadow-emerald-500/10 flex items-center gap-2 h-[48px]">
+                            Отправить
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Center: Orchestrator -->
+        <main id="orchestratorMain" class="flex-1 flex flex-col min-w-0 bg-slate-900/10 h-full overflow-hidden z-10 hidden">
+            <!-- Controls / Header bar for Orchestrator -->
+            <div class="px-6 py-3.5 border-b border-white/5 bg-slate-950/20 flex items-center justify-between gap-4 shrink-0">
+                <div class="flex items-center gap-3">
+                    <span class="text-xs text-slate-400 font-semibold">Навык:</span>
+                    <select id="selectedSkillSelect" onchange="loadSkillIntoEditor(this.value)" class="bg-slate-900 border border-white/5 text-slate-350 rounded-xl px-3 py-1.5 focus:border-emerald-500/50 transition-all font-semibold outline-none text-xs cursor-pointer">
+                        <!-- Options populated by JS -->
+                    </select>
+                    
+                    <div class="h-6 w-px bg-white/10"></div>
+                    
+                    <span class="text-xs text-slate-400 font-semibold">Лимит шагов:</span>
+                    <input id="maxRetriesInput" type="number" min="1" max="10" value="3" class="w-12 bg-slate-900 border border-white/5 rounded-xl px-2 py-1 text-xs text-slate-200 text-center focus:border-emerald-500/50 transition-all outline-none font-semibold">
+                </div>
+                
+                <div class="flex items-center gap-2">
+                    <button onclick="toggleOrchestratorView('runner')" id="viewBtnRunner" class="px-3.5 py-2 bg-emerald-600 text-slate-955 text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer">
+                        Запуск задач
+                    </button>
+                    <button onclick="toggleOrchestratorView('skills')" id="viewBtnSkills" class="px-3.5 py-2 bg-white/5 border border-white/5 text-slate-300 hover:text-slate-255 text-xs font-semibold rounded-xl transition-all cursor-pointer">
+                        Редактор навыков
+                    </button>
+                </div>
+            </div>
+
+            <!-- Content Area -->
+            <div class="flex-1 flex overflow-hidden relative">
+                <!-- VIEW 1: Runner -->
+                <div id="orchViewRunner" class="flex-1 flex flex-col overflow-hidden">
+                    <div class="flex-1 flex overflow-hidden">
+                        <!-- Left inside: Reasoning console -->
+                        <div class="flex-1 flex flex-col border-r border-white/5 overflow-hidden bg-slate-950/20">
+                            <div class="p-3.5 border-b border-white/5 bg-slate-950/40 flex justify-between items-center select-none shrink-0">
+                                <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Ход рассуждений (ReAct Logs)</span>
+                                <button onclick="clearOrchestratorConsole()" class="text-[10px] text-slate-500 hover:text-slate-300 transition-colors font-semibold cursor-pointer">Очистить</button>
+                            </div>
+                            <div id="orchestratorConsole" class="flex-1 overflow-y-auto p-5 space-y-4 font-mono text-xs text-slate-300 select-text leading-relaxed">
+                                <div class="text-slate-500 italic">Ожидание ввода задачи...</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Right inside: Web monitor logs list -->
+                        <div class="w-96 flex flex-col overflow-hidden bg-slate-950/10">
+                            <div class="p-3.5 border-b border-white/5 bg-slate-950/30 flex justify-between items-center select-none shrink-0">
+                                <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Журнал веб-мониторинга</span>
+                                <button onclick="loadWebMonitorLogs()" class="text-[10px] text-emerald-450 hover:text-emerald-350 transition-colors font-semibold cursor-pointer">Обновить</button>
+                            </div>
+                            <div id="monitoringLogsList" class="flex-1 overflow-y-auto p-4 space-y-3">
+                                <div class="text-slate-500 text-xs text-center py-4">Журнал пуст.</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Bottom Prompt Input -->
+                    <div class="p-6 border-t border-white/5 bg-slate-950/30 backdrop-blur-md shrink-0">
+                        <div class="max-w-4xl mx-auto flex gap-3.5 items-end">
+                            <div class="flex-1 relative glass-panel rounded-2xl overflow-hidden focus-within:border-emerald-500/30 transition-all">
+                                <textarea id="orchPromptInput" rows="2" class="w-full bg-transparent border-0 px-4 py-3.5 text-sm text-slate-200 placeholder-slate-500 resize-none focus:ring-0 focus:outline-none" placeholder="Введите задачу для оркестратора... (например: посчитай 105 * 2 + 10 или проверь сайт httpbin.org)"></textarea>
+                            </div>
+                            <button id="btnOrchSend" onclick="runOrchestratorTask()" class="px-5 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-955 text-sm font-bold rounded-2xl transition-all shadow-md hover:shadow-emerald-500/10 flex items-center gap-2 h-[48px] cursor-pointer">
+                                Запустить
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VIEW 2: Skills Editor -->
+                <div id="orchViewSkills" class="flex-1 flex flex-col overflow-hidden hidden p-6 space-y-4 bg-slate-950/10">
+                    <div class="flex gap-4 items-center shrink-0">
+                        <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Редактор системных инструкций (Навыков)</h2>
+                    </div>
+                    <div class="flex-1 flex gap-6 overflow-hidden min-h-0">
+                        <!-- Skills editor list -->
+                        <div class="w-64 border border-white/5 rounded-2xl bg-slate-950/40 p-3.5 flex flex-col space-y-2 overflow-y-auto shrink-0">
+                            <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-2 px-1">Выберите навык для обучения:</span>
+                            <div id="skillsEditorList" class="space-y-2">
+                                <!-- Populated by JS -->
+                            </div>
+                        </div>
+                        
+                        <!-- Form editor -->
+                        <div class="flex-1 border border-white/5 rounded-2xl bg-slate-950/20 p-6 flex flex-col space-y-5 overflow-y-auto">
+                            <div class="space-y-2 shrink-0">
+                                <label class="text-xs text-slate-450 font-bold uppercase tracking-wide">Название навыка</label>
+                                <input id="skillEditName" type="text" class="w-full bg-slate-900 border border-white/5 rounded-xl px-4 py-2.5 text-xs text-slate-200 focus:border-emerald-500/50 outline-none transition-all">
+                            </div>
+                            
+                            <div class="space-y-2 shrink-0">
+                                <label class="text-xs text-slate-450 font-bold uppercase tracking-wide">Описание</label>
+                                <input id="skillEditDesc" type="text" class="w-full bg-slate-900 border border-white/5 rounded-xl px-4 py-2.5 text-xs text-slate-200 focus:border-emerald-500/50 outline-none transition-all">
+                            </div>
+                            
+                            <div class="flex-1 flex flex-col space-y-2 min-h-0">
+                                <label class="text-xs text-slate-450 font-bold uppercase tracking-wide">Системные инструкции (Обучающий промпт)</label>
+                                <textarea id="skillEditPrompt" class="flex-1 bg-slate-900 border border-white/5 rounded-2xl p-4.5 text-xs text-slate-255 font-mono focus:border-emerald-500/50 outline-none transition-all resize-none leading-relaxed"></textarea>
+                            </div>
+                            
+                            <div class="flex justify-end gap-3 shrink-0">
+                                <button onclick="saveCurrentSkill()" class="px-5 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-955 text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer">
+                                    Сохранить изменения
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Right Panel: Live Logs drawer -->
+        <aside id="logsPanel" class="w-96 border-l border-white/5 bg-slate-950/80 backdrop-blur-md flex flex-col hidden shrink-0 h-full overflow-hidden z-20">
+            <div class="p-4 border-b border-white/5 flex items-center justify-between bg-slate-950 shrink-0">
+                <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 font-sans">Вывод llama-server</h2>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="clearTerminal()" class="text-[10px] text-slate-500 hover:text-slate-300 font-semibold transition-colors">Очистить</button>
+                    <span class="text-slate-700">|</span>
+                    <button onclick="toggleLogs()" class="text-slate-500 hover:text-slate-300 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Terminal console -->
+            <div id="logContent" class="flex-1 overflow-y-auto p-4 font-mono text-[10px] bg-slate-950 text-slate-400 space-y-1.5 min-h-0">
+                <!-- Terminal line elements populated by JS -->
+            </div>
+        </aside>
+    </div>
+
+    <!-- Settings Modal Drawer (Right Side) -->
+    <div id="settingsModal" class="fixed inset-0 z-50 hidden transition-all duration-300">
+        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" onclick="closeSettings()"></div>
+        <div class="absolute right-0 top-0 h-full w-full max-w-lg bg-slate-950 border-l border-white/10 shadow-2xl flex flex-col z-50">
+            
+            <!-- Modal Header -->
+            <div class="p-4 border-b border-white/5 flex items-center justify-between bg-slate-900/50 shrink-0">
+                <div class="flex items-center gap-2">
+                    <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+                    <h2 class="text-sm font-bold text-slate-200">Настройки Llama Runner</h2>
+                </div>
+                <button onclick="closeSettings()" class="p-1.5 hover:bg-white/5 rounded-xl border border-transparent hover:border-white/5 transition-all">
+                    <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <!-- Settings Tabs Header -->
+            <div class="flex border-b border-white/5 bg-slate-900/30 text-xs font-semibold shrink-0">
+                <button onclick="setSettingsTab('runtime')" id="tabBtnRuntime" class="flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-400 transition-colors">
+                    Запуск
+                </button>
+                <button onclick="setSettingsTab('sampling')" id="tabBtnSampling" class="flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors">
+                    Сэмплинг
+                </button>
+                <button onclick="setSettingsTab('profiles')" id="tabBtnProfiles" class="flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors">
+                    Профили
+                </button>
+            </div>
+
+            <!-- Modal Content (Scrollable) -->
+            <div class="flex-1 overflow-y-auto p-6 space-y-6">
+                
+                <!-- Section: Runtime parameters -->
+                <div id="settingsTabRuntime" class="space-y-4">
+                    <div class="flex items-center gap-3">
+                        <label class="w-32 text-sm text-slate-400 shrink-0 font-medium">Host IP</label>
+                        <input id="set_host" class="flex-1 bg-slate-900 border border-white/5 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:border-emerald-500/50 outline-none">
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <label class="w-32 text-sm text-slate-400 shrink-0 font-medium">Port</label>
+                        <input id="set_port" type="number" class="flex-1 bg-slate-900 border border-white/5 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:border-emerald-500/50 outline-none">
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <label class="w-32 text-sm text-slate-400 shrink-0 font-medium">Размер контекста</label>
+                        <input id="set_ctx_size" type="number" class="flex-1 bg-slate-900 border border-white/5 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:border-emerald-500/50 outline-none">
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <label class="w-32 text-sm text-slate-400 shrink-0 font-medium">GPU слои (-ngl)</label>
+                        <input id="set_gpu_layers" class="flex-1 bg-slate-900 border border-white/5 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:border-emerald-500/50 outline-none" placeholder="auto или число">
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <label class="w-32 text-sm text-slate-400 shrink-0 font-medium">Потоки (-t)</label>
+                        <input id="set_threads" type="number" class="flex-1 bg-slate-900 border border-white/5 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:border-emerald-500/50 outline-none">
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <label class="w-32 text-sm text-slate-400 shrink-0 font-medium">Batch size</label>
+                        <input id="set_batch_size" type="number" class="flex-1 bg-slate-900 border border-white/5 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:border-emerald-500/50 outline-none">
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <label class="w-32 text-sm text-slate-400 shrink-0 font-medium">Flash Attention</label>
+                        <select id="set_flash_attn" class="flex-1 bg-slate-900 border border-white/5 rounded-xl px-3 py-2 text-sm text-slate-300 focus:border-emerald-500/50 outline-none cursor-pointer">
+                            <option value="auto">auto</option>
+                            <option value="on">on</option>
+                            <option value="off">off</option>
+                        </select>
+                    </div>
+                    
+                    <div class="h-px bg-white/5 my-4"></div>
+                    
+                    <!-- Toggle Switches -->
+                    <div class="grid grid-cols-2 gap-4 pt-2">
+                        <div class="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
+                            <span class="text-xs text-slate-300">Использовать mmap</span>
+                            <div class="relative inline-block w-8 mr-2 align-middle select-none transition duration-200 ease-in">
+                                <input type="checkbox" name="toggle_mmap" id="set_mmap" class="switch-checkbox absolute block w-4 h-4 rounded-full bg-slate-800 border-4 border-slate-900 appearance-none cursor-pointer outline-none right-4 top-0 checked:right-0 checked:bg-emerald-500 checked:border-emerald-600 transition-all duration-300"/>
+                                <label for="set_mmap" class="switch-label block overflow-hidden h-4 rounded-full bg-white/10 cursor-pointer"></label>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
+                            <span class="text-xs text-slate-300">Блокировка памяти</span>
+                            <div class="relative inline-block w-8 mr-2 align-middle select-none transition duration-200 ease-in">
+                                <input type="checkbox" name="toggle_mlock" id="set_mlock" class="switch-checkbox absolute block w-4 h-4 rounded-full bg-slate-800 border-4 border-slate-900 appearance-none cursor-pointer outline-none right-4 top-0 checked:right-0 checked:bg-emerald-500 checked:border-emerald-600 transition-all duration-300"/>
+                                <label for="set_mlock" class="switch-label block overflow-hidden h-4 rounded-full bg-white/10 cursor-pointer"></label>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
+                            <span class="text-xs text-slate-300">KV Offload</span>
+                            <div class="relative inline-block w-8 mr-2 align-middle select-none transition duration-200 ease-in">
+                                <input type="checkbox" name="toggle_kv_offload" id="set_kv_offload" class="switch-checkbox absolute block w-4 h-4 rounded-full bg-slate-800 border-4 border-slate-900 appearance-none cursor-pointer outline-none right-4 top-0 checked:right-0 checked:bg-emerald-500 checked:border-emerald-600 transition-all duration-300"/>
+                                <label for="set_kv_offload" class="switch-label block overflow-hidden h-4 rounded-full bg-white/10 cursor-pointer"></label>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
+                            <span class="text-xs text-slate-300">Web UI сервер</span>
+                            <div class="relative inline-block w-8 mr-2 align-middle select-none transition duration-200 ease-in">
+                                <input type="checkbox" name="toggle_webui" id="set_webui" class="switch-checkbox absolute block w-4 h-4 rounded-full bg-slate-800 border-4 border-slate-900 appearance-none cursor-pointer outline-none right-4 top-0 checked:right-0 checked:bg-emerald-500 checked:border-emerald-600 transition-all duration-300"/>
+                                <label for="set_webui" class="switch-label block overflow-hidden h-4 rounded-full bg-white/10 cursor-pointer"></label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section: Sampling parameters -->
+                <div id="settingsTabSampling" class="space-y-5 hidden">
+                    <!-- Sliders -->
+                    <div class="space-y-2">
+                        <div class="flex justify-between text-xs font-semibold">
+                            <span class="text-slate-400 font-medium">Температура (Temperature)</span>
+                            <span id="val_temperature" class="text-emerald-400 font-mono">0.7</span>
+                        </div>
+                        <input id="set_temperature" type="range" min="0" max="2" step="0.05" class="custom-slider w-full" oninput="document.getElementById('val_temperature').textContent=this.value">
+                    </div>
+                    
+                    <div class="space-y-2">
+                        <div class="flex justify-between text-xs font-semibold">
+                            <span class="text-slate-400 font-medium">Top P</span>
+                            <span id="val_top_p" class="text-emerald-400 font-mono">0.9</span>
+                        </div>
+                        <input id="set_top_p" type="range" min="0" max="1" step="0.05" class="custom-slider w-full" oninput="document.getElementById('val_top_p').textContent=this.value">
+                    </div>
+
+                    <div class="space-y-2">
+                        <div class="flex justify-between text-xs font-semibold">
+                            <span class="text-slate-400 font-medium">Min P</span>
+                            <span id="val_min_p" class="text-emerald-400 font-mono">0.05</span>
+                        </div>
+                        <input id="set_min_p" type="range" min="0" max="1" step="0.01" class="custom-slider w-full" oninput="document.getElementById('val_min_p').textContent=this.value">
+                    </div>
+
+                    <div class="h-px bg-white/5 my-4"></div>
+
+                    <!-- Number Inputs -->
+                    <div class="space-y-3">
+                        <div class="flex items-center gap-3">
+                            <label class="w-36 text-sm text-slate-400 shrink-0 font-medium">Top K</label>
+                            <input id="set_top_k" type="number" class="flex-1 bg-slate-900 border border-white/5 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:border-emerald-500/50 outline-none">
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <label class="w-36 text-sm text-slate-400 shrink-0 font-medium">Repeat Penalty</label>
+                            <input id="set_repeat_penalty" type="number" step="0.01" class="flex-1 bg-slate-900 border border-white/5 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:border-emerald-500/50 outline-none">
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <label class="w-36 text-sm text-slate-400 shrink-0 font-medium">Max Tokens (Ответ)</label>
+                            <input id="set_max_tokens" type="number" class="flex-1 bg-slate-900 border border-white/5 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:border-emerald-500/50 outline-none" placeholder="-1 (безлимитно)" title="-1 означает генерацию до EOS-токена">
+                        </div>
+                    </div>
+
+                    <div class="h-px bg-white/5 my-4"></div>
+
+                    <!-- System prompt -->
+                    <div class="space-y-2">
+                        <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Системный промпт</label>
+                        <textarea id="set_system_prompt" rows="4" class="w-full bg-slate-900 border border-white/5 rounded-xl px-3.5 py-2.5 text-sm text-slate-200 focus:border-emerald-500/50 outline-none resize-none" placeholder="Введите системные инструкции для модели..."></textarea>
+                    </div>
+                </div>
+
+                <!-- Section: Profiles configuration -->
+                <div id="settingsTabProfiles" class="space-y-5 hidden">
+                    <div class="p-3.5 bg-white/5 border border-white/5 rounded-xl space-y-3">
+                        <label class="block text-xs font-semibold text-slate-400">Сохранить текущие параметры</label>
+                        <div class="flex gap-2">
+                            <input id="profileName" type="text" class="flex-1 bg-slate-900 border border-white/5 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:border-emerald-500/50 outline-none" placeholder="Имя нового профиля">
+                            <button onclick="saveProfile()" class="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-slate-955 text-xs font-bold rounded-xl transition-all">Сохранить</button>
+                        </div>
+                    </div>
+
+                    <div class="space-y-2.5">
+                        <label class="block text-xs font-semibold text-slate-400">Доступные профили настроек</label>
+                        <select id="profileSelect" class="w-full bg-slate-900 border border-white/5 text-slate-300 rounded-xl px-3.5 py-2.5 focus:border-emerald-500/50 outline-none font-semibold mb-3 text-xs cursor-pointer"></select>
+                        <button onclick="loadProfile()" class="w-full py-2.5 bg-slate-900 border border-white/5 hover:border-white/10 rounded-xl text-slate-300 hover:text-white font-bold text-xs transition-all flex items-center justify-center gap-1">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                            Загрузить профиль в систему
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Save settings footer button -->
+            <div class="p-4 border-t border-white/5 bg-slate-900/50 flex gap-3 shrink-0">
+                <button onclick="saveAllSettings()" class="flex-1 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-955 font-bold rounded-xl transition-all shadow-md text-xs">
+                    Сохранить изменения
+                </button>
+            </div>
+            
+        </div>
+    </div>
+
+    <!-- JS Logic -->
+    <script>
+        let cfg = {};
+        let messages = [];
+        let isGenerating = false;
+        let abortController = null;
+        let sidebarActiveTab = 'models';
+        let settingsActiveTab = 'runtime';
+        let allModels = [];
+        let sortType = 'params_desc';
+        let currentChatId = null;
+        let chatTitle = "Новый диалог";
+        let chatCreatedAt = null;
+
+        // Marked Custom Renderer setup for codeblocks & highlight.js integration
+        marked.use({
+            renderer: {
+                code(codeOrToken, infostring) {
+                    let codeStr = "";
+                    let lang = "";
+                    
+                    if (codeOrToken && typeof codeOrToken === 'object') {
+                        // New marked API (v11+)
+                        codeStr = codeOrToken.text || '';
+                        lang = codeOrToken.lang || '';
+                    } else {
+                        // Legacy marked API
+                        codeStr = codeOrToken || '';
+                        lang = infostring || '';
+                    }
+                    
+                    const cleanLang = (lang || '').match(/\S*/)[0];
+                    const validLang = hljs.getLanguage(cleanLang) ? cleanLang : 'plaintext';
+                    const highlighted = hljs.highlight(codeStr, { language: validLang }).value;
+                    const randomId = 'code-' + Math.random().toString(36).substring(2, 9);
+                    
+                    return `
+                        <div class="relative my-3.5 rounded-xl border border-white/5 bg-slate-950 overflow-hidden font-mono text-xs group/code shadow-lg transition-transform duration-200">
+                            <div class="flex items-center justify-between px-4 py-2 border-b border-white/5 bg-slate-900/40 text-slate-400">
+                                <span class="font-sans font-bold tracking-wide uppercase text-[9px] text-emerald-400">${validLang}</span>
+                                <button onclick="copyToClipboard('${randomId}')" class="flex items-center gap-1.5 font-sans text-[9px] text-slate-500 hover:text-slate-200 transition-colors">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                                    Копировать
+                                </button>
+                            </div>
+                            <pre class="p-4 overflow-x-auto"><code id="${randomId}" class="hljs language-${validLang}">${highlighted}</code></pre>
+                        </div>
+                    `;
+                }
+            }
+        });
+
+        async function init() {
+            try {
+                const res = await fetch('/api/config');
+                cfg = await res.json();
+                populateSettings(cfg.settings);
+                updateProfiles(cfg.profiles);
+                await scanModels();
+                await updateScanDirsUI();
+                await loadChatsList();
+                pollStatus();
+            } catch (err) {
+                console.error("Initialization error:", err);
+            }
+        }
+
+        // Toggle Sidebar Tab
+        function setSidebarTab(tab) {
+            sidebarActiveTab = tab;
+            const btnModels = document.getElementById('tabBtnModels');
+            const btnChats = document.getElementById('tabBtnChats');
+            const btnFolders = document.getElementById('tabBtnFolders');
+            const viewModels = document.getElementById('sidebarModelsTab');
+            const viewChats = document.getElementById('sidebarChatsTab');
+            const viewFolders = document.getElementById('sidebarFoldersTab');
+
+            // Reset tabs styling
+            [btnModels, btnChats, btnFolders].forEach(btn => {
+                if (btn) btn.className = "flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors";
+            });
+            [viewModels, viewChats, viewFolders].forEach(view => {
+                if (view) view.classList.add('hidden');
+            });
+
+            if (tab === 'models') {
+                btnModels.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-450 transition-colors";
+                viewModels.classList.remove('hidden');
+            } else if (tab === 'chats') {
+                btnChats.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-450 transition-colors";
+                viewChats.classList.remove('hidden');
+                loadChatsList();
+            } else {
+                btnFolders.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-450 transition-colors";
+                viewFolders.classList.remove('hidden');
+            }
+        }
+
+        // Toggle Settings Modal Tab
+        function setSettingsTab(tab) {
+            settingsActiveTab = tab;
+            const btnRuntime = document.getElementById('tabBtnRuntime');
+            const btnSampling = document.getElementById('tabBtnSampling');
+            const btnProfiles = document.getElementById('tabBtnProfiles');
+
+            const viewRuntime = document.getElementById('settingsTabRuntime');
+            const viewSampling = document.getElementById('settingsTabSampling');
+            const viewProfiles = document.getElementById('settingsTabProfiles');
+
+            // Reset
+            [btnRuntime, btnSampling, btnProfiles].forEach(btn => {
+                btn.className = "flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors";
+            });
+            [viewRuntime, viewSampling, viewProfiles].forEach(view => view.classList.add('hidden'));
+
+            if (tab === 'runtime') {
+                btnRuntime.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-400 transition-colors";
+                viewRuntime.classList.remove('hidden');
+            } else if (tab === 'sampling') {
+                btnSampling.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-400 transition-colors";
+                viewSampling.classList.remove('hidden');
+            } else {
+                btnProfiles.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-400 transition-colors";
+                viewProfiles.classList.remove('hidden');
+            }
+        }
+
+        // Fetch scan dirs and custom models UI
+        async function updateScanDirsUI() {
+            const listDirs = document.getElementById('foldersList');
+            const listCustoms = document.getElementById('customModelsList');
+            
+            // Clear
+            listDirs.innerHTML = '';
+            listCustoms.innerHTML = '';
+
+            // Dirs
+            if (cfg.models_dirs && cfg.models_dirs.length > 0) {
+                cfg.models_dirs.forEach(path => {
+                    const row = document.createElement('div');
+                    row.className = 'flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-white/5 text-xs hover:border-white/10 transition-all hover:translate-x-0.5 duration-200';
+                    row.innerHTML = `
+                        <div class="truncate text-slate-350 max-w-[200px]" title="${path}">${path}</div>
+                        <button onclick="removeFolder('${path}')" class="text-red-400 hover:text-red-300 transition-colors p-1" title="Удалить из сканирования">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        </button>
+                    `;
+                    listDirs.appendChild(row);
+                });
+            } else {
+                listDirs.innerHTML = '<div class="text-xs text-slate-500 italic p-1">Папки не добавлены</div>';
+            }
+
+            // Customs
+            if (cfg.custom_models && cfg.custom_models.length > 0) {
+                cfg.custom_models.forEach(path => {
+                    const fileName = path.split(/[/\\]/).pop();
+                    const row = document.createElement('div');
+                    row.className = 'flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-white/5 text-xs hover:border-white/10 transition-all hover:translate-x-0.5 duration-200';
+                    row.innerHTML = `
+                        <div class="truncate text-slate-300 max-w-[200px]" title="${path}">${fileName}</div>
+                        <button onclick="removeCustomModel('${path}')" class="text-red-400 hover:text-red-300 transition-colors p-1" title="Удалить файл">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        </button>
+                    `;
+                    listCustoms.appendChild(row);
+                });
+            } else {
+                listCustoms.innerHTML = '<div class="text-xs text-slate-500 italic p-1">Файлы не добавлены</div>';
+            }
+        }
+
+        // Add Folder through Python API -> Native dialog fallbacks
+        async function addNewFolder() {
+            const selectRes = await fetch('/api/utils/select-folder', { method: 'POST' });
+            const selectData = await selectRes.json();
+            
+            let path = selectData.path;
+            if (!path) {
+                path = prompt('Введите полный абсолютный путь к папке с моделями:');
+            }
+            if (path && path.trim()) {
+                const addRes = await fetch('/api/models/dirs/add', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ path: path.trim() })
+                });
+                const addData = await addRes.json();
+                cfg.models_dirs = addData.dirs;
+                updateScanDirsUI();
+                scanModels();
+            }
+        }
+
+        async function removeFolder(path) {
+            if (confirm(`Удалить папку "${path}" из списка сканирования?`)) {
+                const res = await fetch('/api/models/dirs/remove', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ path })
+                });
+                const data = await res.json();
+                cfg.models_dirs = data.dirs;
+                updateScanDirsUI();
+                scanModels();
+            }
+        }
+
+        // Add Custom Model File through Python API -> Native dialog fallbacks
+        async function addNewCustomModel() {
+            const selectRes = await fetch('/api/utils/select-file', { method: 'POST' });
+            const selectData = await selectRes.json();
+            
+            let path = selectData.path;
+            if (!path) {
+                path = prompt('Введите полный абсолютный путь к файлу модели (.gguf):');
+            }
+            if (path && path.trim()) {
+                const addRes = await fetch('/api/models/custom/add', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ path: path.trim() })
+                });
+                const addData = await addRes.json();
+                cfg.custom_models = addData.custom_models;
+                updateScanDirsUI();
+                scanModels();
+            }
+        }
+
+        async function removeCustomModel(path) {
+            if (confirm(`Удалить индивидуальный файл модели "${path.split(/[/\\]/).pop()}"?`)) {
+                const res = await fetch('/api/models/custom/remove', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ path })
+                });
+                const data = await res.json();
+                cfg.custom_models = data.custom_models;
+                updateScanDirsUI();
+                scanModels();
+            }
+        }
+
+        function populateSettings(s) {
+            for (const [key, val] of Object.entries(s)) {
+                const el = document.getElementById('set_' + key);
+                if (!el) continue;
+                if (el.type === 'checkbox') el.checked = val;
+                else el.value = val;
+                const valEl = document.getElementById('val_' + key);
+                if (valEl) valEl.textContent = val;
+            }
+        }
+
+        function readSettings() {
+            const s = {};
+            for (const key of Object.keys(cfg.settings || {})) {
+                const el = document.getElementById('set_' + key);
+                if (!el) continue;
+                const def = cfg.settings[key];
+                if (typeof def === 'boolean') s[key] = el.checked;
+                else if (typeof def === 'number') s[key] = Number(el.value) || def;
+                else s[key] = el.value;
+            }
+            return s;
+        }
+
+        // Open in Windows Explorer helper
+        async function openExplorer(path, event) {
+            if (event) event.stopPropagation(); // prevent selectModel click
+            try {
+                const res = await fetch('/api/utils/open-explorer', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ path })
+                });
+                const data = await res.json();
+                if (!data.ok) alert('Ошибка открытия проводника: ' + data.error);
+            } catch (err) {
+                alert('Не удалось открыть проводник: ' + err.message);
+            }
+        }
+
+        // Scan Models from python API
+        async function scanModels() {
+            const list = document.getElementById('modelList');
+            list.innerHTML = `
+                <div class="flex flex-col items-center justify-center py-8 text-xs text-slate-500 gap-2">
+                    <svg class="w-5 h-5 animate-spin text-emerald-500" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                    Сканирование папок...
+                </div>`;
+
+            try {
+                const res = await fetch('/api/models');
+                allModels = await res.json();
+                sortAndRenderModels();
+            } catch (err) {
+                list.innerHTML = `<div class="text-xs text-red-400 p-3 bg-red-950/20 rounded-xl border border-red-500/10">Ошибка: ${err.message}</div>`;
+            }
+        }
+
+        // Sort type changed
+        function handleModelSort(val) {
+            sortType = val;
+            sortAndRenderModels();
+        }
+
+        // Filter and Sort Models rendering
+        function sortAndRenderModels() {
+            let sorted = [...allModels];
+            
+            // Apply sorting
+            if (sortType === 'params_desc') {
+                sorted.sort((a, b) => (b.params_num || 0) - (a.params_num || 0));
+            } else if (sortType === 'params_asc') {
+                sorted.sort((a, b) => (a.params_num || 0) - (b.params_num || 0));
+            } else if (sortType === 'size_desc') {
+                sorted.sort((a, b) => (b.size_gb || 0) - (a.size_gb || 0));
+            } else if (sortType === 'size_asc') {
+                sorted.sort((a, b) => (a.size_gb || 0) - (b.size_gb || 0));
+            } else if (sortType === 'name_asc') {
+                sorted.sort((a, b) => a.name.localeCompare(b.name));
+            }
+
+            // Apply search filtering
+            const q = document.getElementById('modelSearch').value.toLowerCase().trim();
+            if (q) {
+                sorted = sorted.filter(m => 
+                    m.name.toLowerCase().includes(q) || 
+                    m.folder.toLowerCase().includes(q) ||
+                    m.path.toLowerCase().includes(q)
+                );
+            }
+
+            renderModelsList(sorted);
+        }
+
+        // Render models to Sidebar
+        function renderModelsList(models) {
+            const list = document.getElementById('modelList');
+            list.innerHTML = '';
+            
+            if (models.length === 0) {
+                list.innerHTML = `
+                    <div class="text-center py-10 px-4 text-xs text-slate-500 space-y-2">
+                        <div>Модели .gguf не обнаружены</div>
+                        <button onclick="setSidebarTab('folders')" class="text-emerald-400 font-semibold hover:underline">Добавить папки</button>
+                    </div>`;
+                return;
+            }
+
+            models.forEach(m => {
+                const isSelected = m.path === cfg.selected_model;
+                if (isSelected) {
+                    document.getElementById('selectedModelLabel').textContent = m.name;
+                }
+
+                // Folder short label
+                let folderLabel = 'Custom';
+                if (!m.custom) {
+                    const parts = m.folder.split(/[/\\]/);
+                    folderLabel = parts.pop() || parts.pop() || 'Folder';
+                } else {
+                    folderLabel = 'Индивид.';
+                }
+
+                // Parameters badge (e.g. 8B, 13B)
+                const paramsBadge = m.params 
+                    ? `<span class="px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/25 text-emerald-450 font-bold text-[9px] tracking-wide shadow-sm shadow-emerald-500/5 select-none">${m.params}</span>` 
+                    : '';
+
+                const div = document.createElement('div');
+                div.className = `p-3.5 rounded-xl cursor-pointer transition-all border group/card relative hover:-translate-y-0.5 ${
+                    isSelected 
+                        ? 'glass-card-active border-emerald-500/30' 
+                        : 'bg-slate-900/40 hover:bg-slate-900/80 border-white/5 hover:border-white/10 shadow-sm'
+                }`;
+                
+                div.innerHTML = `
+                    <div class="flex justify-between items-start gap-2">
+                        <div class="text-xs font-semibold ${isSelected ? 'text-emerald-450 font-bold' : 'text-slate-200'} truncate flex-1 group-hover/card:text-emerald-350 transition-colors" title="${m.name}">
+                            ${m.name}
+                        </div>
+                        <button onclick="openExplorer('${m.path}', event)" class="opacity-0 group-hover/card:opacity-100 p-1 text-slate-500 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all" title="Показать в проводнике">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5M5 19v-2m14 2a2 2 0 002-2v-3M2 22V2h20v20H2z"/></svg>
+                        </button>
+                    </div>
+                    <div class="flex items-center justify-between mt-2.5 text-[10px] font-semibold text-slate-500">
+                        <div class="flex items-center gap-1.5">
+                            ${paramsBadge}
+                            <span class="px-1.5 py-0.5 rounded bg-white/5 border border-white/5 text-[9px] uppercase tracking-wide truncate max-w-[80px]" title="${m.folder}">${folderLabel}</span>
+                            <span class="px-1.5 py-0.5 rounded bg-white/5 border border-white/5 font-mono">${m.size_gb} GB</span>
+                        </div>
+                        <div class="text-[9px] text-slate-600 truncate max-w-[90px] text-right" title="${m.path}">
+                            ${m.path.replace(/\\\\|\\/g, '/')}
+                        </div>
+                    </div>
+                `;
+                div.onclick = () => selectModel(m.path, div, m.name);
+                list.appendChild(div);
+            });
+        }
+
+        // Handle search key input
+        function handleModelSearch(query) {
+            sortAndRenderModels();
+        }
+
+        async function selectModel(path, el, name) {
+            cfg.selected_model = path;
+            document.getElementById('selectedModelLabel').textContent = name;
+            
+            sortAndRenderModels();
+
+            await fetch('/api/config', { 
+                method: 'POST', 
+                headers: {'Content-Type':'application/json'}, 
+                body: JSON.stringify({selected_model: path}) 
+            });
+        }
+
+        async function startServer() {
+            const btn = document.getElementById('btnStart');
+            btn.disabled = true;
+            btn.innerHTML = '<svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Запуск...';
+            
+            try {
+                const res = await fetch('/api/server/start', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ selected_model: cfg.selected_model, settings: readSettings() })
+                });
+                const data = await res.json();
+                btn.disabled = false;
+                btn.innerHTML = '<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> Запустить сервер';
+                
+                if (!data.ok) {
+                    addSystemMessage('Ошибка запуска сервера: ' + data.error);
+                } else {
+                    addSystemMessage('Сервер запущен! Дождитесь статуса "Готов"');
+                    document.getElementById('logsPanel').classList.remove('hidden');
+                }
+            } catch (err) {
+                btn.disabled = false;
+                btn.innerHTML = '<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> Запустить сервер';
+                addSystemMessage('Сетевая ошибка запуска: ' + err.message);
+            }
+        }
+
+        async function stopServer() {
+            try {
+                const res = await fetch('/api/server/stop', { method: 'POST' });
+                const data = await res.json();
+                if (data.ok) {
+                    addSystemMessage('Запрос на остановку сервера отправлен');
+                }
+            } catch (err) {
+                addSystemMessage('Не удалось отправить запрос на остановку: ' + err.message);
+            }
+        }
+
+        // Live logs polling
+        async function pollLogs() {
+            const panel = document.getElementById('logsPanel');
+            if (panel.classList.contains('hidden')) return;
+
+            try {
+                const res = await fetch('/api/server/logs');
+                const data = await res.json();
+                
+                if (data.logs && data.logs.length > 0) {
+                    const content = document.getElementById('logContent');
+                    data.logs.forEach(logLine => {
+                        const div = document.createElement('div');
+                        if (logLine.includes('err') || logLine.includes('fail') || logLine.includes('Error')) {
+                            div.className = 'text-red-400';
+                        } else if (logLine.includes('warn')) {
+                            div.className = 'text-yellow-400';
+                        } else if (logLine.includes('load') || logLine.includes('timings')) {
+                            div.className = 'text-emerald-400';
+                        } else {
+                            div.className = 'text-slate-400';
+                        }
+                        div.textContent = logLine;
+                        content.appendChild(div);
+                    });
+                    content.scrollTop = content.scrollHeight;
+                }
+            } catch {}
+        }
+        setInterval(pollLogs, 1500);
+
+        function clearTerminal() {
+            document.getElementById('logContent').innerHTML = '';
+        }
+
+        // Status checking
+        let serverReady = false;
+        async function pollStatus() {
+            try {
+                const res = await fetch('/api/server/status');
+                const s = await res.json();
+                const badge = document.getElementById('statusBadge');
+                const dot = badge.querySelector('span:first-child');
+                const text = document.getElementById('statusText');
+                const logsInd = document.getElementById('logsIndicator');
+
+                const btnStart = document.getElementById('btnStart');
+                const btnStop = document.getElementById('btnStop');
+
+                if (s.running) {
+                    // Disable start button, enable stop button
+                    btnStart.disabled = true;
+                    btnStart.className = 'px-4.5 py-2.5 bg-slate-900 border border-white/5 text-slate-500 cursor-not-allowed text-xs font-bold rounded-xl transition-all flex items-center gap-2';
+                    btnStart.innerHTML = '<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> Запустить сервер';
+
+                    btnStop.disabled = false;
+                    btnStop.className = 'px-4.5 py-2.5 bg-red-950/30 hover:bg-red-900/40 border border-red-500/10 hover:border-red-500/25 text-red-400 text-xs font-bold rounded-xl transition-all flex items-center gap-2 cursor-pointer';
+
+                    if (s.ready) {
+                        serverReady = true;
+                        dot.className = 'w-2 h-2 rounded-full bg-emerald-500 glow-pulse-emerald';
+                        text.textContent = 'Загружена: ' + s.url;
+                        badge.className = 'flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-xs font-semibold text-emerald-400 shadow-glass-emerald';
+                        logsInd.className = 'w-2 h-2 rounded-full bg-emerald-500 glow-pulse-emerald';
+                    } else {
+                        serverReady = false;
+                        dot.className = 'w-2 h-2 rounded-full bg-amber-500 glow-pulse-amber';
+                        text.textContent = 'Загружается...';
+                        badge.className = 'flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-xs font-semibold text-amber-400';
+                        logsInd.className = 'w-2 h-2 rounded-full bg-amber-500 glow-pulse-amber';
+                    }
+                } else {
+                    // Server is stopped or crashed
+                    serverReady = false;
+
+                    // Enable start button, disable stop button
+                    btnStart.disabled = false;
+                    btnStart.className = 'px-4.5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-955 text-xs font-bold rounded-xl transition-all shadow-md hover:shadow-emerald-500/10 flex items-center gap-2 cursor-pointer';
+                    btnStart.innerHTML = '<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> Запустить сервер';
+
+                    btnStop.disabled = true;
+                    btnStop.className = 'px-4.5 py-2.5 bg-slate-900 border border-white/5 text-slate-500 cursor-not-allowed text-xs font-bold rounded-xl transition-all flex items-center gap-2';
+
+                    if (s.crashed) {
+                        dot.className = 'w-2 h-2 rounded-full bg-red-500 glow-pulse-red';
+                        text.textContent = 'Ошибка: ' + s.error;
+                        badge.className = 'flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-red-500/10 border border-red-500/30 text-xs font-semibold text-red-400 shadow-glass-red';
+                        logsInd.className = 'w-2 h-2 rounded-full bg-red-500';
+                    } else {
+                        dot.className = 'w-2 h-2 rounded-full bg-slate-500';
+                        text.textContent = 'Остановлен';
+                        badge.className = 'flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-slate-900/80 border border-white/5 text-xs font-semibold text-slate-400';
+                        logsInd.className = 'w-2 h-2 rounded-full bg-slate-500';
+                    }
+                }
+            } catch (e) {
+                serverReady = false;
+            }
+            setTimeout(pollStatus, 2000);
+        }
+
+        function handleKey(e) {
+            if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); sendMessage(); }
+        }
+
+        // Abort controller generation
+        function abortGeneration() {
+            if (abortController) {
+                abortController.abort();
+                isGenerating = false;
+                document.getElementById('btnAbort').classList.add('hidden');
+                document.getElementById('btnSend').disabled = false;
+                addSystemMessage('Генерация прервана пользователем');
+            }
+        }
+
+        // Update live generation stats dynamically
+        function updateLiveStats(id, speed, tokens, time) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            let statsEl = el.querySelector('.live-stats');
+            if (!statsEl) {
+                statsEl = document.createElement('div');
+                statsEl.className = 'live-stats flex items-center gap-1.5 mt-3.5 pt-2.5 border-t border-white/5 text-[10px] text-slate-500 font-semibold select-none';
+                el.querySelector('.bubble-container').appendChild(statsEl);
+            }
+            statsEl.innerHTML = `
+                <span class="text-emerald-450 animate-pulse">⚡ ${speed.toFixed(1)} т/с</span>
+                <span>•</span>
+                <span>${tokens} токенов</span>
+                <span>•</span>
+                <span>${time.toFixed(1)}с</span>
+            `;
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('promptInput');
+            const text = input.value.trim();
+            if (!text || isGenerating) return;
+            
+            if (!serverReady) {
+                alert('Сначала запустите сервер и дождитесь его готовности!');
+                return;
+            }
+
+            input.value = '';
+            
+            // Set session ID if not set
+            if (!currentChatId) {
+                currentChatId = 'chat-' + Date.now();
+                chatCreatedAt = Math.floor(Date.now() / 1000);
+                chatTitle = text.slice(0, 30) + (text.length > 30 ? '...' : '');
+            }
+
+            messages.push({ role: 'user', content: text });
+            addUserMessage(text);
+            
+            // Save & update sidebar list immediately after user message
+            saveCurrentChat();
+            loadChatsList();
+
+            isGenerating = true;
+            document.getElementById('btnSend').disabled = true;
+            document.getElementById('btnAbort').classList.remove('hidden');
+
+            // Set up a pulsing cursor in the assistant message bubble
+            const msgId = addAssistantMessage('...');
+            const msgEl = document.getElementById(msgId);
+            const textEl = msgEl.querySelector('.message-body');
+            
+            abortController = new AbortController();
+            
+            let assistantText = "";
+            let tokenCount = 0;
+            let firstTokenTime = null;
+            let tStart = Date.now();
+
+            try {
+                const sysPrompt = document.getElementById('set_system_prompt')?.value?.trim();
+                const apiMessages = [];
+                if (sysPrompt) {
+                    apiMessages.push({ role: 'system', content: sysPrompt });
+                }
+                apiMessages.push(...messages);
+
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        messages: apiMessages,
+                        settings: readSettings(),
+                        stream: true
+                    }),
+                    signal: abortController.signal
+                });
+
+                if (!response.ok) {
+                    const errData = await response.json();
+                    throw new Error(errData.error || 'Ошибка сервера');
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder("utf-8");
+                let buffer = "";
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split("\n");
+                    buffer = lines.pop(); // Keep remaining buffer
+
+                    for (const line of lines) {
+                        const cleaned = line.trim();
+                        if (!cleaned) continue;
+                        
+                        if (cleaned.startsWith("data: ")) {
+                            const dataStr = cleaned.slice(6);
+                            if (dataStr === "[DONE]") continue;
+                            
+                            try {
+                                const parsed = JSON.parse(dataStr);
+                                if (parsed.error) {
+                                    throw new Error(parsed.error);
+                                }
+                                
+                                const delta = parsed.choices?.[0]?.delta?.content || "";
+                                if (delta) {
+                                    if (firstTokenTime === null) {
+                                        firstTokenTime = Date.now();
+                                    }
+                                    assistantText += delta;
+                                    // Render with a typing cursor `▌`
+                                    textEl.innerHTML = marked.parse(assistantText) + '<span class="typing-cursor"></span>';
+                                }
+
+                                if (parsed.usage) {
+                                    tokenCount = parsed.usage.completion_tokens;
+                                }
+
+                                // Update real-time generation speed
+                                if (firstTokenTime !== null) {
+                                    const elapsedSec = (Date.now() - firstTokenTime) / 1000;
+                                    if (elapsedSec > 0.05) {
+                                        const estTokens = tokenCount || Math.round(assistantText.length / 3.8);
+                                        const liveSpeed = estTokens / elapsedSec;
+                                        updateLiveStats(msgId, liveSpeed, estTokens, elapsedSec);
+                                    }
+                                }
+                            } catch (errJson) {
+                                console.error("Line parse error:", errJson);
+                            }
+                        }
+                    }
+                }
+
+                // If finished successfully
+                isGenerating = false;
+                document.getElementById('btnSend').disabled = false;
+                document.getElementById('btnAbort').classList.add('hidden');
+                
+                messages.push({ role: 'assistant', content: assistantText });
+
+                // Render final text without typing cursor
+                textEl.innerHTML = marked.parse(assistantText);
+
+                // Calculate final generation speed
+                const tEnd = Date.now();
+                const durationMs = tEnd - (firstTokenTime || tStart);
+                const durationSec = durationMs > 0 ? durationMs / 1000 : 0.1;
+                
+                if (tokenCount === 0) {
+                    tokenCount = Math.round(assistantText.length / 3.8);
+                }
+                const speed = tokenCount / durationSec;
+
+                // Add token speed badge at bottom of bubble
+                let statsEl = msgEl.querySelector('.live-stats');
+                if (!statsEl) {
+                    statsEl = document.createElement('div');
+                    statsEl.className = 'live-stats flex items-center gap-1.5 mt-3.5 pt-2.5 border-t border-white/5 text-[10px] text-slate-500 font-semibold select-none';
+                    msgEl.querySelector('.bubble-container').appendChild(statsEl);
+                }
+                statsEl.innerHTML = `
+                    <span class="text-emerald-400">⚡ ${speed.toFixed(1)} токенов/сек</span>
+                    <span>•</span>
+                    <span>${tokenCount} токенов</span>
+                    <span>•</span>
+                    <span>${durationSec.toFixed(1)}с</span>
+                `;
+
+                saveCurrentChat();
+                loadChatsList();
+
+            } catch (err) {
+                if (err.name === 'AbortError') {
+                    isGenerating = false;
+                    document.getElementById('btnSend').disabled = false;
+                    document.getElementById('btnAbort').classList.add('hidden');
+                    
+                    if (assistantText) {
+                        messages.push({ role: 'assistant', content: assistantText });
+                        saveCurrentChat();
+                        loadChatsList();
+                    }
+                    return;
+                }
+                isGenerating = false;
+                document.getElementById('btnSend').disabled = false;
+                document.getElementById('btnAbort').classList.add('hidden');
+                textEl.innerHTML = `<span class="text-red-400 font-medium">Ошибка: ${err.message}</span>`;
+                
+                if (assistantText) {
+                    messages.push({ role: 'assistant', content: assistantText });
+                }
+                saveCurrentChat();
+                loadChatsList();
+            }
+        }
+
+        // Helper to render message content with MD formatting in DOM
+        function renderMessageDOM(role, content) {
+            const area = document.getElementById('chatArea');
+            const div = document.createElement('div');
+            
+            if (role === 'user') {
+                div.className = 'chat-msg flex justify-end';
+                div.innerHTML = `
+                    <div class="max-w-[75%] rounded-2xl rounded-br-sm px-4.5 py-3.5 bg-emerald-500/5 border border-emerald-500/20 text-slate-200 shadow-sm prose prose-invert">
+                        <div class="text-[9px] font-bold text-emerald-450 tracking-wide uppercase mb-1.5 select-none no-prose">Вы</div>
+                        <div class="message-body text-sm leading-relaxed">${marked.parse(content)}</div>
+                    </div>
+                `;
+            } else {
+                const id = 'msg-' + Math.random().toString(36).substring(2, 9);
+                div.className = 'chat-msg flex justify-start';
+                div.id = id;
+                div.innerHTML = `
+                    <div class="max-w-[80%] flex gap-3.5 items-start">
+                        <div class="w-8 h-8 shrink-0 rounded-xl bg-slate-900 border border-white/5 flex items-center justify-center text-sm shadow shadow-emerald-500/5 select-none transition-transform hover:scale-105">🦙</div>
+                        <div class="bubble-container rounded-2xl rounded-bl-sm px-4.5 py-3.5 bg-slate-900/60 border border-white/5 shadow-sm prose prose-invert">
+                            <div class="flex justify-between items-center mb-1.5 no-prose">
+                                <span class="text-[9px] font-bold text-slate-400 tracking-wide uppercase select-none">Ассистент</span>
+                            </div>
+                            <div class="message-body text-sm text-slate-200 leading-relaxed">${marked.parse(content)}</div>
+                        </div>
+                    </div>
+                `;
+            }
+            area.appendChild(div);
+            area.scrollTop = area.scrollHeight;
+            return div.id || null;
+        }
+
+        function addUserMessage(text) {
+            const area = document.getElementById('chatArea');
+            if (messages.length === 1) area.innerHTML = '';
+            renderMessageDOM('user', text);
+        }
+
+        function addAssistantMessage(text) {
+            const area = document.getElementById('chatArea');
+            if (messages.length === 1) area.innerHTML = '';
+            
+            const id = 'msg-' + Date.now();
+            const div = document.createElement('div');
+            div.className = 'chat-msg flex justify-start';
+            div.id = id;
+            div.innerHTML = `
+                <div class="max-w-[80%] flex gap-3.5 items-start">
+                    <div class="w-8 h-8 shrink-0 rounded-xl bg-slate-900 border border-white/5 flex items-center justify-center text-sm shadow shadow-emerald-500/5 select-none transition-transform hover:scale-105">🦙</div>
+                    <div class="bubble-container rounded-2xl rounded-bl-sm px-4.5 py-3.5 bg-slate-900/60 border border-white/5 shadow-sm prose prose-invert">
+                        <div class="flex justify-between items-center mb-1.5 no-prose">
+                            <span class="text-[9px] font-bold text-slate-400 tracking-wide uppercase select-none">Ассистент</span>
+                        </div>
+                        <div class="message-body text-sm text-slate-200 leading-relaxed">${marked.parse(text)}</div>
+                    </div>
+                </div>
+            `;
+            area.appendChild(div);
+            area.scrollTop = area.scrollHeight;
+            return id;
+        }
+
+        function addSystemMessage(text) {
+            const area = document.getElementById('chatArea');
+            const div = document.createElement('div');
+            div.className = 'chat-msg flex justify-center py-1';
+            div.innerHTML = `
+                <div class="px-4 py-2 bg-slate-900/80 border border-white/5 rounded-full text-[10px] text-slate-500 font-semibold shadow select-none">
+                    ${escapeHTML(text)}
+                </div>
+            `;
+            area.appendChild(div);
+            area.scrollTop = area.scrollHeight;
+        }
+
+        function newChat() {
+            createNewChatSession();
+            addSystemMessage('Диалог сброшен');
+        }
+
+        // Format date timestamp
+        function formatDate(timestamp) {
+            if (!timestamp) return "";
+            const date = new Date(timestamp * 1000);
+            return date.toLocaleString('ru-RU', {
+                day: '2-digit',
+                month: '2-digit',
+                year: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        // Fetch and load chats list
+        async function loadChatsList() {
+            try {
+                const res = await fetch('/api/chats');
+                const chats = await res.json();
+                const container = document.getElementById('chatsList');
+                if (!container) return;
+                container.innerHTML = '';
+
+                if (chats.length === 0) {
+                    container.innerHTML = `
+                        <div class="flex items-center justify-center h-32 text-xs text-slate-500">
+                            Нет сохраненных сессий
+                        </div>`;
+                    return;
+                }
+
+                chats.forEach(chat => {
+                    const isActive = chat.id === currentChatId;
+                    const div = document.createElement('div');
+                    
+                    const escTitle = (chat.title || "Без названия").replace(/'/g, "\\'");
+                    
+                    div.className = `p-3.5 rounded-xl cursor-pointer transition-all border group/chat relative hover:-translate-y-0.5 ${
+                        isActive 
+                            ? 'glass-card-active border-emerald-500/30' 
+                            : 'bg-slate-900/40 hover:bg-slate-900/80 border-white/5 hover:border-white/10 shadow-sm'
+                    }`;
+                    
+                    div.innerHTML = `
+                        <div class="flex justify-between items-start gap-2">
+                            <div class="text-xs font-semibold ${isActive ? 'text-emerald-450 font-bold' : 'text-slate-200'} truncate flex-1 group-hover/chat:text-emerald-350 transition-colors" title="${chat.title}">
+                                💬 ${chat.title}
+                            </div>
+                            <div class="flex items-center gap-1 opacity-0 group-hover/chat:opacity-100 transition-all shrink-0">
+                                <button onclick="renameChatSession('${chat.id}', '${escTitle}', event)" class="p-1 text-slate-500 hover:text-emerald-450 hover:bg-white/5 rounded-lg transition-all" title="Переименовать">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                                </button>
+                                <button onclick="deleteChatSession('${chat.id}', event)" class="p-1 text-slate-500 hover:text-red-400 hover:bg-white/5 rounded-lg transition-all" title="Удалить">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between mt-2.5 text-[10px] font-semibold text-slate-500 select-none">
+                            <span>${chat.msg_count} сообщений</span>
+                            <span>${formatDate(chat.created_at)}</span>
+                        </div>
+                    `;
+                    div.onclick = () => loadChatSession(chat.id);
+                    container.appendChild(div);
+                });
+            } catch (err) {
+                console.error("Error loading chats list:", err);
+            }
+        }
+
+        // Load specific chat session
+        async function loadChatSession(id) {
+            try {
+                const res = await fetch(`/api/chats/${id}`);
+                const chat = await res.json();
+                
+                currentChatId = chat.id;
+                chatTitle = chat.title;
+                chatCreatedAt = chat.created_at;
+                messages = chat.messages || [];
+                
+                const area = document.getElementById('chatArea');
+                area.innerHTML = '';
+                
+                if (messages.length === 0) {
+                    area.innerHTML = `
+                        <div class="flex flex-col items-center justify-center h-full text-center max-w-lg mx-auto space-y-5">
+                            <div class="w-16 h-16 rounded-2xl bg-slate-900 border border-white/5 flex items-center justify-center text-3xl shadow-inner select-none transition-transform hover:scale-110 duration-300">🦙</div>
+                            <h2 class="text-base font-bold text-slate-200">Диалог пуст</h2>
+                        </div>`;
+                } else {
+                    messages.forEach(msg => {
+                        renderMessageDOM(msg.role, msg.content);
+                    });
+                }
+                
+                loadChatsList();
+            } catch (err) {
+                alert('Не удалось загрузить сессию: ' + err.message);
+            }
+        }
+
+        // Save current chat session
+        async function saveCurrentChat() {
+            if (!currentChatId) return;
+            try {
+                await fetch(`/api/chats/${currentChatId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        messages: messages,
+                        title: chatTitle,
+                        created_at: chatCreatedAt
+                    })
+                });
+            } catch (err) {
+                console.error("Error saving current chat:", err);
+            }
+        }
+
+        // Create new clean chat session
+        function createNewChatSession() {
+            currentChatId = null;
+            chatTitle = "Новый диалог";
+            chatCreatedAt = null;
+            messages = [];
+            
+            const area = document.getElementById('chatArea');
+            area.innerHTML = `
+                <div class="flex flex-col items-center justify-center h-full text-center max-w-lg mx-auto space-y-5">
+                    <div class="w-16 h-16 rounded-2xl bg-slate-900 border border-white/5 flex items-center justify-center text-3xl shadow-inner select-none transition-transform hover:scale-110 duration-300">🦙</div>
+                    <h2 class="text-base font-bold text-slate-200">Добро пожаловать в Llama Runner!</h2>
+                    <p class="text-sm text-slate-400 leading-relaxed max-w-md">
+                        Выберите модель в сайдбаре слева, настройте параметры генерации, запустите локальный сервер и начните беседу.
+                    </p>
+                </div>`;
+            
+            loadChatsList();
+        }
+
+        // Rename session
+        async function renameChatSession(id, oldTitle, event) {
+            if (event) event.stopPropagation();
+            
+            const newTitle = prompt("Введите новое название диалога:", oldTitle);
+            if (newTitle === null) return;
+            
+            const trimmed = newTitle.trim();
+            if (!trimmed) {
+                alert("Название не может быть пустым!");
+                return;
+            }
+
+            try {
+                const getRes = await fetch(`/api/chats/${id}`);
+                const chat = await getRes.json();
+                
+                chat.title = trimmed;
+                
+                await fetch(`/api/chats/${id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(chat)
+                });
+                
+                if (id === currentChatId) {
+                    chatTitle = trimmed;
+                }
+                
+                loadChatsList();
+            } catch (err) {
+                alert("Ошибка при переименовании: " + err.message);
+            }
+        }
+
+        // Delete session
+        async function deleteChatSession(id, event) {
+            if (event) event.stopPropagation();
+            
+            if (!confirm("Вы действительно хотите удалить этот диалог?")) return;
+            
+            try {
+                const res = await fetch(`/api/chats/${id}`, { method: 'DELETE' });
+                const data = await res.json();
+                
+                if (data.ok) {
+                    if (id === currentChatId) {
+                        createNewChatSession();
+                    } else {
+                        loadChatsList();
+                    }
+                } else {
+                    alert("Не удалось удалить: " + data.error);
+                }
+            } catch (err) {
+                alert("Ошибка при удалении: " + err.message);
+            }
+        }
+
+        function escapeHTML(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        // Clipboard Copy Helper
+        function copyToClipboard(id) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            navigator.clipboard.writeText(el.innerText || el.textContent);
+            
+            const btn = event.currentTarget;
+            const oldHTML = btn.innerHTML;
+            btn.innerHTML = `
+                <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span class="text-emerald-400 font-bold">Скопировано!</span>
+            `;
+            setTimeout(() => { btn.innerHTML = oldHTML; }, 2000);
+        }
+
+        // Drawer Animations
+        function openSettings() {
+            const el = document.getElementById('settingsModal');
+            el.classList.remove('hidden');
+            // Force reflow
+            el.offsetHeight;
+            el.querySelector('.absolute.right-0').style.transform = 'translateX(0)';
+            el.querySelector('.absolute.right-0').style.opacity = '1';
+        }
+        
+        function closeSettings() {
+            const el = document.getElementById('settingsModal');
+            el.classList.add('hidden');
+        }
+
+        async function saveAllSettings() {
+            const s = readSettings();
+            cfg.settings = s;
+            try {
+                await fetch('/api/config', { 
+                    method: 'POST', 
+                    headers: {'Content-Type':'application/json'}, 
+                    body: JSON.stringify({ settings: s }) 
+                });
+                addSystemMessage('Настройки сохранены в конфигурации');
+                closeSettings();
+            } catch (err) {
+                alert('Не удалось сохранить настройки: ' + err.message);
+            }
+        }
+
+        function updateProfiles(profiles) {
+            const sel = document.getElementById('profileSelect');
+            sel.innerHTML = '';
+            for (const name of Object.keys(profiles || {})) {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name;
+                sel.appendChild(opt);
+            }
+        }
+
+        async function saveProfile() {
+            const name = document.getElementById('profileName').value.trim();
+            if (!name) {
+                alert('Введите имя профиля');
+                return;
+            }
+            cfg.settings = readSettings();
+            try {
+                const res = await fetch('/api/profiles', { 
+                    method: 'POST', 
+                    headers: {'Content-Type':'application/json'}, 
+                    body: JSON.stringify({ name }) 
+                });
+                const data = await res.json();
+                if (data.ok) { 
+                    updateProfiles(data.profiles); 
+                    cfg.profiles = data.profiles; 
+                    document.getElementById('profileName').value = '';
+                    addSystemMessage('Профиль настроек сохранён: ' + name); 
+                }
+            } catch (err) {
+                alert('Ошибка сохранения профиля: ' + err.message);
+            }
+        }
+
+        async function loadProfile() {
+            const name = document.getElementById('profileSelect').value;
+            if (!name) return;
+            try {
+                const res = await fetch('/api/profiles/' + encodeURIComponent(name), { method: 'POST' });
+                const data = await res.json();
+                if (data.ok) { 
+                    cfg.settings = data.settings; 
+                    populateSettings(data.settings); 
+                    addSystemMessage('Профиль настроек загружен: ' + name); 
+                    closeSettings();
+                }
+            } catch (err) {
+                alert('Ошибка загрузки профиля: ' + err.message);
+            }
+        }
+
+        function applyPreset() {
+            const name = document.getElementById('presetSelect').value;
+            const preset = cfg.presets?.[name];
+            if (!preset) return;
+            for (const [k, v] of Object.entries(preset)) {
+                const el = document.getElementById('set_' + k);
+                if (el) { 
+                    if (el.type === 'checkbox') el.checked = v;
+                    else el.value = v; 
+                    const valEl = document.getElementById('val_' + k); 
+                    if (valEl) valEl.textContent = v; 
+                }
+            }
+        }
+
+        function toggleLogs() {
+            const p = document.getElementById('logsPanel');
+            p.classList.toggle('hidden');
+            pollLogs();
+        }
+
+        // --- ORCHESTRATOR INTEGRATION CONTROLLER ---
+        let skills = {};
+        let currentEditSkillId = 'core_agent';
+
+        async function setMainMode(mode) {
+            const chatSide = document.getElementById('chatSidebarContainer');
+            const chatSideInfo = document.getElementById('selectedModelLabel').parentElement;
+            const chatMain = document.getElementById('chatMain');
+            
+            const orchSide = document.getElementById('orchestratorSidebar');
+            const orchMain = document.getElementById('orchestratorMain');
+            
+            const btnChat = document.getElementById('modeBtnChat');
+            const btnOrch = document.getElementById('modeBtnOrchestrator');
+            
+            if (mode === 'chat') {
+                chatSide.classList.remove('hidden');
+                if (chatSideInfo) chatSideInfo.classList.remove('hidden');
+                chatMain.classList.remove('hidden');
+                
+                orchSide.classList.add('hidden');
+                orchMain.classList.add('hidden');
+                
+                btnChat.className = 'px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-slate-955 shadow-md transition-all flex items-center gap-1.5 cursor-pointer';
+                btnOrch.className = 'px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 transition-all flex items-center gap-1.5 cursor-pointer';
+            } else {
+                chatSide.classList.add('hidden');
+                if (chatSideInfo) chatSideInfo.classList.add('hidden');
+                chatMain.classList.add('hidden');
+                
+                orchSide.classList.remove('hidden');
+                orchMain.classList.remove('hidden');
+                
+                btnChat.className = 'px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 transition-all flex items-center gap-1.5 cursor-pointer';
+                btnOrch.className = 'px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-slate-955 shadow-md transition-all flex items-center gap-1.5 cursor-pointer';
+                
+                // Load data
+                await loadSkills();
+                await loadWebMonitorLogs();
+                await loadOrchestratorStatus();
+            }
+        }
+        
+        function toggleOrchestratorView(view) {
+            const runnerView = document.getElementById('orchViewRunner');
+            const skillsView = document.getElementById('orchViewSkills');
+            const btnRun = document.getElementById('viewBtnRunner');
+            const btnSkills = document.getElementById('viewBtnSkills');
+            
+            if (view === 'runner') {
+                runnerView.classList.remove('hidden');
+                skillsView.classList.add('hidden');
+                
+                btnRun.className = 'px-3.5 py-2 bg-emerald-600 text-slate-955 text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer';
+                btnSkills.className = 'px-3.5 py-2 bg-white/5 border border-white/5 text-slate-350 hover:text-slate-250 text-xs font-semibold rounded-xl transition-all cursor-pointer';
+            } else {
+                runnerView.classList.add('hidden');
+                skillsView.classList.remove('hidden');
+                
+                btnRun.className = 'px-3.5 py-2 bg-white/5 border border-white/5 text-slate-355 hover:text-slate-250 text-xs font-semibold rounded-xl transition-all cursor-pointer';
+                btnSkills.className = 'px-3.5 py-2 bg-emerald-600 text-slate-955 text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer';
+            }
+        }
+        
+        async function loadSkills() {
+            try {
+                const res = await fetch('/api/orchestrator/skills');
+                skills = await res.json();
+                
+                // Selected option
+                const select = document.getElementById('selectedSkillSelect');
+                select.innerHTML = '';
+                
+                const sidebarList = document.getElementById('skillsList');
+                sidebarList.innerHTML = '';
+                
+                const editorList = document.getElementById('skillsEditorList');
+                editorList.innerHTML = '';
+                
+                for (const [id, skill] of Object.entries(skills)) {
+                    // 1. Select option
+                    const opt = document.createElement('option');
+                    opt.value = id;
+                    opt.textContent = skill.name;
+                    select.appendChild(opt);
+                    
+                    // 2. Sidebar card
+                    const card = document.createElement('div');
+                    card.className = 'p-3 rounded-xl border bg-slate-900/40 border-white/5 hover:border-white/10 cursor-pointer transition-all hover:-translate-y-0.5';
+                    card.innerHTML = `
+                        <div class="text-[11px] font-bold text-emerald-455">🧠 ${skill.name}</div>
+                        <div class="text-[10px] text-slate-400 mt-1 line-clamp-2">${skill.description || ''}</div>
+                    `;
+                    card.onclick = () => {
+                        setMainMode('orchestrator');
+                        toggleOrchestratorView('skills');
+                        editSkill(id);
+                    };
+                    sidebarList.appendChild(card);
+                    
+                    // 3. Editor sidebar card
+                    const edCard = document.createElement('button');
+                    edCard.className = `w-full text-left p-3 rounded-xl border transition-all text-xs font-semibold cursor-pointer ${id === currentEditSkillId ? 'glass-card-active border-emerald-500/30 text-emerald-400 font-bold' : 'bg-slate-900/40 hover:bg-slate-900/80 border-white/5 text-slate-350'}`;
+                    edCard.innerHTML = `🧠 ${skill.name}`;
+                    edCard.onclick = () => editSkill(id);
+                    editorList.appendChild(edCard);
+                }
+                
+                editSkill(currentEditSkillId);
+            } catch (err) {
+                console.error("Error loading skills:", err);
+            }
+        }
+        
+        function editSkill(id) {
+            currentEditSkillId = id;
+            const skill = skills[id];
+            if (!skill) return;
+            
+            // Highlight in editor list
+            const editorList = document.getElementById('skillsEditorList');
+            if (editorList) {
+                const btns = editorList.querySelectorAll('button');
+                let idx = 0;
+                for (const [sId, s] of Object.entries(skills)) {
+                    const btn = btns[idx++];
+                    if (btn) {
+                        if (sId === id) {
+                            btn.className = 'w-full text-left p-3 rounded-xl border transition-all text-xs font-bold glass-card-active border-emerald-500/30 text-emerald-400 cursor-pointer';
+                        } else {
+                            btn.className = 'w-full text-left p-3 rounded-xl border transition-all text-xs font-semibold bg-slate-900/40 hover:bg-slate-900/80 border-white/5 text-slate-355 cursor-pointer';
+                        }
+                    }
+                }
+            }
+            
+            document.getElementById('skillEditName').value = skill.name || '';
+            document.getElementById('skillEditDesc').value = skill.description || '';
+            document.getElementById('skillEditPrompt').value = skill.system_prompt || '';
+        }
+        
+        async function saveCurrentSkill() {
+            const name = document.getElementById('skillEditName').value.trim();
+            const desc = document.getElementById('skillEditDesc').value.trim();
+            const promptVal = document.getElementById('skillEditPrompt').value.trim();
+            
+            if (!name || !promptVal) {
+                alert("Имя и системные инструкции не могут быть пустыми!");
+                return;
+            }
+            
+            try {
+                const res = await fetch(`/api/orchestrator/skills/${currentEditSkillId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: name,
+                        description: desc,
+                        system_prompt: promptVal
+                    })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    alert("Навык успешно сохранен!");
+                    loadSkills();
+                } else {
+                    alert("Ошибка сохранения: " + data.error);
+                }
+            } catch (err) {
+                alert("Ошибка сохранения: " + err.message);
+            }
+        }
+        
+        async function loadWebMonitorLogs() {
+            try {
+                const res = await fetch('/api/orchestrator/logs');
+                const data = await res.json();
+                const container = document.getElementById('monitoringLogsList');
+                if (!container) return;
+                container.innerHTML = '';
+                
+                if (data.length === 0) {
+                    container.innerHTML = `<div class="text-slate-500 text-xs text-center py-4 italic">Логи пусты. Запустите веб-мониторинг для создания записей.</div>`;
+                    return;
+                }
+                
+                // Show last 10 logs
+                data.slice(-10).reverse().forEach(log => {
+                    const div = document.createElement('div');
+                    div.className = 'p-3 rounded-xl border bg-slate-900/40 border-white/5 text-[11px] space-y-1.5';
+                    const badgeClass = log.success ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20';
+                    div.innerHTML = `
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-slate-300 truncate max-w-[200px]" title="${log.url}">${log.url}</span>
+                            <span class="px-1.5 py-0.5 rounded border text-[9px] font-bold ${badgeClass}">${log.status_code}</span>
+                        </div>
+                        <div class="flex justify-between text-slate-500 text-[10px]">
+                            <span>${log.timestamp}</span>
+                            <span>${log.data_length} байт</span>
+                        </div>
+                    `;
+                    container.appendChild(div);
+                });
+            } catch (err) {
+                console.error("Error loading logs:", err);
+            }
+        }
+        
+        async function loadOrchestratorStatus() {
+            try {
+                const res = await fetch('/api/orchestrator/status');
+                const data = await res.json();
+                const container = document.getElementById('toolsList');
+                if (!container) return;
+                container.innerHTML = '';
+                
+                if (data.tools && data.tools.length > 0) {
+                    data.tools.forEach(t => {
+                        const div = document.createElement('div');
+                        div.className = 'flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-white/5 text-[10px]';
+                        div.innerHTML = `
+                            <span class="font-bold text-slate-350 font-mono">${t.function.name}</span>
+                            <span class="text-emerald-450 font-semibold uppercase text-[8px] tracking-wider bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 shadow-glass-emerald">Active</span>
+                        `;
+                        container.appendChild(div);
+                    });
+                }
+            } catch (err) {
+                console.error("Error loading status:", err);
+            }
+        }
+        
+        function clearOrchestratorConsole() {
+            document.getElementById('orchestratorConsole').innerHTML = `<div class="text-slate-500 italic">Очищено. Ожидание ввода...</div>`;
+        }
+        
+        async function runOrchestratorTask() {
+            const input = document.getElementById('orchPromptInput');
+            const promptText = input.value.trim();
+            if (!promptText) return;
+            
+            const btn = document.getElementById('btnOrchSend');
+            btn.disabled = true;
+            btn.innerHTML = `<svg class="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Выполнение...`;
+            
+            const consoleEl = document.getElementById('orchestratorConsole');
+            consoleEl.innerHTML = `<div class="text-emerald-400 font-bold">[Агент] Запуск задачи: ${escapeHTML(promptText)}...</div>`;
+            
+            try {
+                const response = await fetch('/api/orchestrator/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: promptText,
+                        skill_id: document.getElementById('selectedSkillSelect').value,
+                        max_retries: parseInt(document.getElementById('maxRetriesInput').value) || 3
+                    })
+                });
+                
+                const data = await response.json();
+                btn.disabled = false;
+                btn.innerHTML = `Запустить <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>`;
+                
+                consoleEl.innerHTML = '';
+                if (data.steps && data.steps.length > 0) {
+                    data.steps.forEach(step => {
+                        const div = document.createElement('div');
+                        if (step.includes('[Ошибка') || step.includes('[Error')) {
+                            div.className = 'text-red-400 font-bold';
+                        } else if (step.includes('[Инструмент') && step.includes('[Вывод]')) {
+                            div.className = 'text-teal-300 mt-2 pl-4 border-l-2 border-teal-500/50 bg-slate-900/20 py-1.5 rounded-r-xl';
+                        } else if (step.includes('[Агент]') && step.includes('Итоговый ответ:')) {
+                            div.className = 'text-emerald-400 font-bold mt-4 p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl';
+                        } else if (step.includes('--->')) {
+                            div.className = 'text-yellow-400/90 pl-6 font-semibold';
+                        } else {
+                            div.className = 'text-slate-350';
+                        }
+                        div.innerHTML = escapeHTML(step).replace(/\n/g, '<br>');
+                        consoleEl.appendChild(div);
+                    });
+                }
+                
+                if (data.ok) {
+                    input.value = '';
+                    loadWebMonitorLogs();
+                } else {
+                    const div = document.createElement('div');
+                    div.className = 'text-red-400 font-bold mt-3 p-3 bg-red-500/5 border border-red-500/20 rounded-xl';
+                    div.textContent = `[Сбой выполнения]: ${data.error}`;
+                    consoleEl.appendChild(div);
+                }
+            } catch (err) {
+                btn.disabled = false;
+                btn.innerHTML = `Запустить <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>`;
+                const div = document.createElement('div');
+                div.className = 'text-red-400 font-bold mt-3 p-3 bg-red-500/5 border border-red-500/20 rounded-xl';
+                div.textContent = `[Сбой запроса]: ${err.message}`;
+                consoleEl.appendChild(div);
+            }
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+
+        init();
+    </script>
+</body>
+</html>
