@@ -159,6 +159,44 @@ registry.register(Tool(
 ))
 
 registry.register(Tool(
+    name="get_task_comments",
+    description="Получает историю переписки и комментариев в чате задачи.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "work_order_id": {
+                "type": "integer",
+                "description": "ID задачи (work order)."
+            }
+        },
+        "required": ["work_order_id"]
+    },
+    func=erp_tools.get_task_comments,
+    category="projects"
+))
+
+registry.register(Tool(
+    name="update_task_summary",
+    description="Заменяет официальный сводный лог/отчет выполнения задачи (history_log).",
+    parameters={
+        "type": "object",
+        "properties": {
+            "work_order_id": {
+                "type": "integer",
+                "description": "ID задачи (work order)."
+            },
+            "summary_text": {
+                "type": "string",
+                "description": "Новая сводка/отчет хода работ."
+            }
+        },
+        "required": ["work_order_id", "summary_text"]
+    },
+    func=erp_tools.update_task_summary,
+    category="projects"
+))
+
+registry.register(Tool(
     name="list_upcoming_trips",
     description="Получает список всех запланированных и активных командировок сотрудников (включая ID графиков, имена и даты).",
     parameters={
