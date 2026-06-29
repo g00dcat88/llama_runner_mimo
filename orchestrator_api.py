@@ -48,7 +48,8 @@ execute_python_tool = Tool(
         },
         "required": ["code"]
     },
-    func=sandbox.execute_code
+    func=sandbox.execute_code,
+    category="python_sandbox"
 )
 registry.register(execute_python_tool)
 
@@ -68,7 +69,8 @@ web_monitor_tool = Tool(
         },
         "required": ["url"]
     },
-    func=web_monitor.monitor
+    func=web_monitor.monitor,
+    category="web_monitor"
 )
 registry.register(web_monitor_tool)
 
@@ -89,7 +91,8 @@ registry.register(Tool(
         },
         "required": ["project_code"]
     },
-    func=erp_tools.get_project_card
+    func=erp_tools.get_project_card,
+    category="projects"
 ))
 
 registry.register(Tool(
@@ -105,7 +108,8 @@ registry.register(Tool(
         },
         "required": ["schedule_id"]
     },
-    func=erp_tools.get_trip_details
+    func=erp_tools.get_trip_details,
+    category="hr"
 ))
 
 registry.register(Tool(
@@ -129,7 +133,8 @@ registry.register(Tool(
         },
         "required": ["work_order_id", "text", "author_name"]
     },
-    func=erp_tools.append_task_details
+    func=erp_tools.append_task_details,
+    category="projects"
 ))
 
 registry.register(Tool(
@@ -149,7 +154,8 @@ registry.register(Tool(
         },
         "required": ["project_id", "summary_text"]
     },
-    func=erp_tools.consolidate_to_project
+    func=erp_tools.consolidate_to_project,
+    category="projects"
 ))
 
 registry.register(Tool(
@@ -159,7 +165,8 @@ registry.register(Tool(
         "type": "object",
         "properties": {}
     },
-    func=erp_tools.list_upcoming_trips
+    func=erp_tools.list_upcoming_trips,
+    category="hr"
 ))
 
 registry.register(Tool(
@@ -222,7 +229,6 @@ def get_logs():
 def run_orchestrator():
     data = request.get_json() or {}
     prompt = data.get("prompt", "")
-    skill_id = data.get("skill_id", "core_agent")
     max_retries = int(data.get("max_retries", 3))
 
     # Apply secure dynamic configurations for calling back the ERP
@@ -236,11 +242,6 @@ def run_orchestrator():
     if not prompt:
         return jsonify({"ok": False, "error": "Промпт пуст"}), 400
         
-    # Load selected skill prompt
-    skills = skills_manager.list_skills()
-    selected_skill = skills.get(skill_id, skills.get("core_agent"))
-    system_prompt = selected_skill["system_prompt"] if selected_skill else None
-    
     from app import config as runner_config
     server_url = f"http://{runner_config.settings['host']}:{runner_config.settings['port']}"
     
@@ -252,7 +253,38 @@ def run_orchestrator():
     steps_log = []
     def log_callback(msg):
         steps_log.append(msg)
+
+    # Инициализируем классификатор и определяем скоуп и навык
+    from dispatcher import QueryDispatcher
+    dispatcher = QueryDispatcher(llm)
+    classification = dispatcher.classify(prompt)
+    scope_raw = classification.get("scope", "general")
+    reason = classification.get("reason", "По умолчанию")
+    
+    # Сопоставляем категорию классификатора с конфигурацией скоупов/навыков
+    if scope_raw in ["hr_single", "hr_summary"]:
+        scope = "hr"
+        skill_id = "hr_assistant"
+    elif scope_raw in ["fsm_single", "fsm_summary"]:
+        scope = "projects"
+        skill_id = "projects_assistant"
+    elif scope_raw == "python_sandbox":
+        scope = "python_sandbox"
+        skill_id = "python_coder"
+    elif scope_raw == "web_monitor":
+        scope = "web_monitor"
+        skill_id = "web_monitoring"
+    else:
+        scope = "general"
+        skill_id = "core_agent"
+
+    log_callback(f"🤖 [Маршрутизатор] Анализ запроса... Направление: {scope_raw} -> Скоуп: '{scope}', Навык: '{skill_id}' (Обоснование: {reason})")
         
+    # Загружаем соответствующий системный промпт
+    skills = skills_manager.list_skills()
+    selected_skill = skills.get(skill_id, skills.get("core_agent"))
+    system_prompt = selected_skill["system_prompt"] if selected_skill else None
+    
     try:
         result = run_agentic_loop(
             llm=llm,
@@ -260,7 +292,8 @@ def run_orchestrator():
             user_prompt=prompt,
             max_retries=max_retries,
             system_prompt=system_prompt,
-            log_callback=log_callback
+            log_callback=log_callback,
+            scope=scope
         )
         return jsonify({
             "ok": True,
