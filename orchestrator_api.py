@@ -274,6 +274,9 @@ def run_orchestrator():
     elif scope_raw == "web_monitor":
         scope = "web_monitor"
         skill_id = "web_monitoring"
+    elif scope_raw == "task_constructor":
+        scope = "general"
+        skill_id = "task_constructor_assistant"
     else:
         scope = "general"
         skill_id = "core_agent"
