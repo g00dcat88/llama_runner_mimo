@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru" class="dark">
+<html lang="ru" class="dark" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -48,140 +48,216 @@
         }
     </script>
     <style>
+        /* ========== DARK THEME ========== */
         body {
-            background-color: #040712;
-            background-image: 
-                radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.04) 0px, transparent 50%),
-                radial-gradient(at 100% 100%, rgba(20, 184, 166, 0.04) 0px, transparent 50%);
-        }
-        
-        /* Glassmorphism custom classes */
-        .glass-panel {
-            background: rgba(11, 19, 43, 0.45);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.04);
-        }
-        .glass-panel-light {
-            background: rgba(30, 41, 59, 0.35);
-            border: 1px solid rgba(255, 255, 255, 0.03);
-        }
-        .glass-card-active {
-            background: rgba(16, 185, 129, 0.07);
-            border: 1px solid rgba(16, 185, 129, 0.3);
-            box-shadow: 0 0 20px -5px rgba(16, 185, 129, 0.15);
-        }
-        
-        ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: rgba(5, 8, 20, 0.5);
-        }
-        ::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.08);
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: rgba(16, 185, 129, 0.4);
-        }
-        
-        .chat-msg {
-            animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateY(12px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .glow-pulse-emerald {
-            animation: pulseGlowEmerald 2s infinite;
-        }
-        @keyframes pulseGlowEmerald {
-            0%, 100% { box-shadow: 0 0 10px 1px rgba(16, 185, 129, 0.2); }
-            50% { box-shadow: 0 0 18px 4px rgba(16, 185, 129, 0.5); }
-        }
-        
-        .glow-pulse-amber {
-            animation: pulseGlowAmber 2s infinite;
-        }
-        @keyframes pulseGlowAmber {
-            0%, 100% { box-shadow: 0 0 10px 1px rgba(245, 158, 11, 0.2); }
-            50% { box-shadow: 0 0 18px 4px rgba(245, 158, 11, 0.5); }
+            background-color: #0c111d;
+            background-image:
+                radial-gradient(ellipse at 20% 0%, rgba(99, 102, 241, 0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 100%, rgba(16, 185, 129, 0.05) 0%, transparent 50%);
+            color: #c9d1d9;
         }
 
-        /* Cursor typing indicator */
+        .glass-panel {
+            background: rgba(17, 24, 39, 0.75);
+            backdrop-filter: blur(20px) saturate(1.4);
+            -webkit-backdrop-filter: blur(20px) saturate(1.4);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .glass-panel-light {
+            background: rgba(30, 41, 59, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+        .glass-card-active {
+            background: rgba(16, 185, 129, 0.08);
+            border: 1px solid rgba(16, 185, 129, 0.25);
+            box-shadow: 0 4px 24px -4px rgba(16, 185, 129, 0.12);
+        }
+
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 99px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(16, 185, 129, 0.45); }
+
+        .chat-msg {
+            animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .glow-pulse-emerald {
+            animation: pulseGlowEmerald 2.5s ease-in-out infinite;
+        }
+        @keyframes pulseGlowEmerald {
+            0%, 100% { box-shadow: 0 0 8px 1px rgba(16, 185, 129, 0.15); }
+            50% { box-shadow: 0 0 16px 3px rgba(16, 185, 129, 0.35); }
+        }
+        .glow-pulse-amber {
+            animation: pulseGlowAmber 2.5s ease-in-out infinite;
+        }
+        @keyframes pulseGlowAmber {
+            0%, 100% { box-shadow: 0 0 8px 1px rgba(245, 158, 11, 0.15); }
+            50% { box-shadow: 0 0 16px 3px rgba(245, 158, 11, 0.35); }
+        }
+
         .typing-cursor {
             display: inline-block;
-            width: 8px;
-            height: 15px;
+            width: 7px;
+            height: 14px;
             background-color: #10b981;
             margin-left: 2px;
+            border-radius: 2px;
             animation: blink 0.8s steps(2, start) infinite;
             vertical-align: middle;
         }
-        @keyframes blink {
-            to { visibility: hidden; }
-        }
+        @keyframes blink { to { visibility: hidden; } }
 
-        /* Custom range styling */
-        .custom-slider {
-            -webkit-appearance: none;
-            background: transparent;
-        }
+        .custom-slider { -webkit-appearance: none; background: transparent; }
         .custom-slider::-webkit-slider-runnable-track {
-            background: rgba(255, 255, 255, 0.08);
-            height: 6px;
-            border-radius: 9999px;
+            background: rgba(255,255,255,0.08);
+            height: 4px;
+            border-radius: 99px;
         }
         .custom-slider::-webkit-slider-thumb {
             -webkit-appearance: none;
             background: #10b981;
-            height: 16px;
-            width: 16px;
-            border-radius: 9999px;
+            height: 14px; width: 14px;
+            border-radius: 99px;
             margin-top: -5px;
             cursor: pointer;
-            box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
-            transition: transform 0.1s;
+            box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+            transition: transform 0.15s;
         }
-        .custom-slider::-webkit-slider-thumb:hover {
-            transform: scale(1.2);
+        .custom-slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
+
+        .switch-checkbox:checked + .switch-label { background-color: #10b981; }
+        .switch-checkbox:checked + .switch-label .switch-dot { transform: translateX(100%); }
+
+        .prose p { margin-top: 0.4rem !important; margin-bottom: 0.4rem !important; }
+        .prose p:first-child { margin-top: 0 !important; }
+        .prose p:last-child { margin-bottom: 0 !important; }
+        .prose ul, .prose ol { margin-top: 0.4rem !important; margin-bottom: 0.4rem !important; padding-left: 1.2rem !important; }
+        .prose li { margin-top: 0.2rem !important; margin-bottom: 0.2rem !important; }
+        .prose pre { margin-top: 0.4rem !important; margin-bottom: 0.4rem !important; }
+
+        /* ========== LIGHT THEME ========== */
+        [data-theme="light"] body {
+            background-color: #f4f6f9;
+            background-image:
+                radial-gradient(ellipse at 20% 0%, rgba(99, 102, 241, 0.05) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 100%, rgba(16, 185, 129, 0.04) 0%, transparent 50%);
+            color: #24292f;
         }
 
-        /* Toggle switch */
-        .switch-checkbox:checked + .switch-label {
-            background-color: #10b981;
+        [data-theme="light"] .glass-panel {
+            background: rgba(255, 255, 255, 0.82);
+            backdrop-filter: blur(20px) saturate(1.3);
+            -webkit-backdrop-filter: blur(20px) saturate(1.3);
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
         }
-        .switch-checkbox:checked + .switch-label .switch-dot {
-            transform: translateX(100%);
+        [data-theme="light"] .glass-panel-light {
+            background: rgba(255, 255, 255, 0.5);
+            border: 1px solid rgba(0, 0, 0, 0.04);
+        }
+        [data-theme="light"] .glass-card-active {
+            background: rgba(16, 185, 129, 0.06);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            box-shadow: 0 2px 12px -2px rgba(16, 185, 129, 0.12);
         }
 
-        /* Custom styles for prose (markdown elements) to prevent excessive vertical spacing */
-        .prose p {
-            margin-top: 0.5rem !important;
-            margin-bottom: 0.5rem !important;
+        [data-theme="light"] ::-webkit-scrollbar-track { background: transparent; }
+        [data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); }
+        [data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(16, 185, 129, 0.4); }
+
+        [data-theme="light"] .glow-pulse-emerald {
+            animation: pulseGlowEmeraldLight 2.5s ease-in-out infinite;
         }
-        .prose p:first-child {
-            margin-top: 0 !important;
+        @keyframes pulseGlowEmeraldLight {
+            0%, 100% { box-shadow: 0 0 6px 1px rgba(16, 185, 129, 0.1); }
+            50% { box-shadow: 0 0 12px 2px rgba(16, 185, 129, 0.2); }
         }
-        .prose p:last-child {
-            margin-bottom: 0 !important;
+        [data-theme="light"] .glow-pulse-amber {
+            animation: pulseGlowAmberLight 2.5s ease-in-out infinite;
         }
-        .prose ul, .prose ol {
-            margin-top: 0.5rem !important;
-            margin-bottom: 0.5rem !important;
-            padding-left: 1.25rem !important;
+        @keyframes pulseGlowAmberLight {
+            0%, 100% { box-shadow: 0 0 6px 1px rgba(245, 158, 11, 0.1); }
+            50% { box-shadow: 0 0 12px 2px rgba(245, 158, 11, 0.2); }
         }
-        .prose li {
-            margin-top: 0.25rem !important;
-            margin-bottom: 0.25rem !important;
-        }
-        .prose pre {
-            margin-top: 0.5rem !important;
-            margin-bottom: 0.5rem !important;
-        }
+
+        /* Light text palette — warm grays, not cold */
+        [data-theme="light"] .text-slate-100 { color: #1c2128; }
+        [data-theme="light"] .text-slate-200 { color: #2d333b; }
+        [data-theme="light"] .text-slate-300 { color: #444c56; }
+        [data-theme="light"] .text-slate-400 { color: #656d76; }
+        [data-theme="light"] .text-slate-500 { color: #8b949e; }
+        [data-theme="light"] .text-slate-255 { color: #3b424d; }
+        [data-theme="light"] .text-slate-350 { color: #545d68; }
+        [data-theme="light"] .text-slate-355 { color: #545d68; }
+        [data-theme="light"] .text-slate-400 { color: #656d76; }
+        [data-theme="light"] .text-slate-450 { color: #76818e; }
+        [data-theme="light"] .text-slate-500 { color: #8b949e; }
+        [data-theme="light"] .text-emerald-400 { color: #059669; }
+        [data-theme="light"] .text-emerald-450 { color: #047857; }
+        [data-theme="light"] .text-emerald-455 { color: #047857; }
+
+        /* Light backgrounds */
+        [data-theme="light"] .bg-slate-800 { background-color: #f0f2f5; }
+        [data-theme="light"] .bg-slate-900 { background-color: #f6f8fa; }
+        [data-theme="light"] .bg-slate-950 { background-color: #eaecef; }
+        [data-theme="light"] .bg-slate-950\/20 { background-color: rgba(230,233,237,0.5); }
+        [data-theme="light"] .bg-slate-950\/30 { background-color: rgba(230,233,237,0.6); }
+        [data-theme="light"] .bg-slate-950\/40 { background-color: rgba(230,233,237,0.7); }
+        [data-theme="light"] .bg-slate-950\/80 { background-color: rgba(230,233,237,0.85); }
+        [data-theme="light"] .bg-slate-900\/40 { background-color: rgba(246,248,250,0.7); }
+        [data-theme="light"] .bg-slate-900\/60 { background-color: rgba(246,248,250,0.8); }
+        [data-theme="light"] .bg-slate-900\/80 { background-color: rgba(246,248,250,0.9); }
+        [data-theme="light"] .bg-black\/50 { background-color: rgba(0,0,0,0.25); }
+
+        /* Light borders */
+        [data-theme="light"] .border-white\/5 { border-color: rgba(0,0,0,0.07); }
+        [data-theme="light"] .border-white\/10 { border-color: rgba(0,0,0,0.1); }
+        [data-theme="light"] .border-emerald-500\/20 { border-color: rgba(5,150,105,0.25); }
+        [data-theme="light"] .border-emerald-500\/30 { border-color: rgba(5,150,105,0.35); }
+        [data-theme="light"] .border-red-500\/20 { border-color: rgba(220,38,38,0.25); }
+        [data-theme="light"] .border-blue-500\/20 { border-color: rgba(37,99,235,0.25); }
+        [data-theme="light"] .border-violet-500\/20 { border-color: rgba(124,58,237,0.25); }
+        [data-theme="light"] .border-orange-500\/20 { border-color: rgba(234,88,12,0.25); }
+        [data-theme="light"] .border-slate-500\/20 { border-color: rgba(100,116,139,0.25); }
+
+        /* Light button backgrounds */
+        [data-theme="light"] .bg-white\/5 { background-color: rgba(0,0,0,0.03); }
+        [data-theme="light"] .bg-emerald-500\/10 { background-color: rgba(5,150,105,0.08); }
+        [data-theme="light"] .bg-emerald-600 { background-color: #059669; }
+        [data-theme="light"] .bg-emerald-500 { background-color: #10b981; }
+        [data-theme="light"] .hover\:bg-emerald-500:hover { background-color: #10b981; }
+        [data-theme="light"] .hover\:bg-emerald-600:hover { background-color: #047857; }
+        [data-theme="light"] .from-emerald-600 { --tw-gradient-from: #059669; }
+        [data-theme="light"] .to-teal-600 { --tw-gradient-to: #0d9488; }
+        [data-theme="light"] .from-emerald-500 { --tw-gradient-from: #10b981; }
+        [data-theme="light"] .to-teal-500 { --tw-gradient-to: #14b8a6; }
+
+        [data-theme="light"] .bg-red-500\/10 { background-color: rgba(220,38,38,0.06); }
+        [data-theme="light"] .bg-blue-500\/10 { background-color: rgba(37,99,235,0.06); }
+        [data-theme="light"] .bg-violet-500\/10 { background-color: rgba(124,58,237,0.06); }
+        [data-theme="light"] .bg-orange-500\/10 { background-color: rgba(234,88,12,0.06); }
+        [data-theme="light"] .bg-slate-500\/10 { background-color: rgba(100,116,139,0.06); }
+
+        /* Light text for badges */
+        [data-theme="light"] .text-blue-400 { color: #2563eb; }
+        [data-theme="light"] .text-violet-400 { color: #7c3aed; }
+        [data-theme="light"] .text-orange-400 { color: #ea580c; }
+
+        /* Light shadow for modals */
+        [data-theme="light"] .shadow-2xl { box-shadow: 0 8px 40px rgba(0,0,0,0.12); }
+
+        /* Light hover states */
+        [data-theme="light"] .hover\:text-slate-200:hover { color: #2d333b; }
+        [data-theme="light"] .hover\:text-slate-300:hover { color: #444c56; }
+        [data-theme="light"] .hover\:text-emerald-350:hover { color: #047857; }
+        [data-theme="light"] .hover\:text-emerald-400:hover { color: #059669; }
+        [data-theme="light"] .hover\:border-white\/10:hover { border-color: rgba(0,0,0,0.12); }
     </style>
 </head>
 <body class="text-slate-100 h-screen overflow-hidden flex flex-col antialiased">
@@ -443,6 +519,12 @@
                     <button onclick="toggleOrchestratorView('skills')" id="viewBtnSkills" class="px-3.5 py-2 bg-white/5 border border-white/5 text-slate-300 hover:text-slate-255 text-xs font-semibold rounded-xl transition-all cursor-pointer">
                         Редактор навыков
                     </button>
+                    <button onclick="toggleOrchestratorView('providers')" id="viewBtnProviders" class="px-3.5 py-2 bg-white/5 border border-white/5 text-slate-300 hover:text-slate-255 text-xs font-semibold rounded-xl transition-all cursor-pointer">
+                        Провайдеры LLM
+                    </button>
+                    <button onclick="toggleTheme()" id="themeToggle" class="px-3.5 py-2 bg-white/5 border border-white/5 text-slate-300 hover:text-slate-255 text-xs font-semibold rounded-xl transition-all cursor-pointer">
+                        ☀️
+                    </button>
                 </div>
             </div>
 
@@ -501,29 +583,102 @@
                                 <!-- Populated by JS -->
                             </div>
                         </div>
-                        
+
                         <!-- Form editor -->
                         <div class="flex-1 border border-white/5 rounded-2xl bg-slate-950/20 p-6 flex flex-col space-y-5 overflow-y-auto">
                             <div class="space-y-2 shrink-0">
                                 <label class="text-xs text-slate-450 font-bold uppercase tracking-wide">Название навыка</label>
                                 <input id="skillEditName" type="text" class="w-full bg-slate-900 border border-white/5 rounded-xl px-4 py-2.5 text-xs text-slate-200 focus:border-emerald-500/50 outline-none transition-all">
                             </div>
-                            
+
                             <div class="space-y-2 shrink-0">
                                 <label class="text-xs text-slate-450 font-bold uppercase tracking-wide">Описание</label>
                                 <input id="skillEditDesc" type="text" class="w-full bg-slate-900 border border-white/5 rounded-xl px-4 py-2.5 text-xs text-slate-200 focus:border-emerald-500/50 outline-none transition-all">
                             </div>
-                            
+
                             <div class="flex-1 flex flex-col space-y-2 min-h-0">
                                 <label class="text-xs text-slate-450 font-bold uppercase tracking-wide">Системные инструкции (Обучающий промпт)</label>
                                 <textarea id="skillEditPrompt" class="flex-1 bg-slate-900 border border-white/5 rounded-2xl p-4.5 text-xs text-slate-255 font-mono focus:border-emerald-500/50 outline-none transition-all resize-none leading-relaxed"></textarea>
                             </div>
-                            
+
                             <div class="flex justify-end gap-3 shrink-0">
                                 <button onclick="saveCurrentSkill()" class="px-5 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-955 text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer">
                                     Сохранить изменения
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VIEW 3: Providers -->
+                <div id="orchViewProviders" class="flex-1 flex flex-col overflow-hidden hidden p-6 space-y-4 bg-slate-950/10">
+                    <div class="flex gap-4 items-center justify-between shrink-0">
+                        <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Провайдеры LLM и Маршрутизация</h2>
+                        <button onclick="loadProviders()" class="px-3 py-1.5 bg-white/5 border border-white/5 text-slate-300 hover:text-slate-200 text-[10px] font-semibold rounded-lg transition-all cursor-pointer">Обновить</button>
+                    </div>
+
+                    <!-- Router Status -->
+                    <div id="routerStatus" class="border border-white/5 rounded-2xl bg-slate-950/40 p-4 flex items-center gap-6 shrink-0">
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] text-slate-500 font-bold uppercase">Стратегия:</span>
+                            <select id="routerStrategy" onchange="setRouterStrategy()" class="bg-slate-900 border border-white/5 rounded-lg px-2 py-1 text-xs text-slate-200 focus:border-emerald-500/50 outline-none">
+                                <option value="hybrid">Hybrid (локал + API)</option>
+                                <option value="local-first">Local-first</option>
+                                <option value="api-first">API-first</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] text-slate-500 font-bold uppercase">Провайдеров:</span>
+                            <span id="providerCount" class="text-xs text-emerald-400 font-bold">0</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] text-slate-500 font-bold uppercase">Сложность:</span>
+                            <span id="complexityThreshold" class="text-xs text-slate-300">0.7</span>
+                        </div>
+                    </div>
+
+                    <!-- Providers List -->
+                    <div class="flex-1 overflow-y-auto space-y-3">
+                        <div id="providersList" class="space-y-3">
+                            <div class="text-slate-500 text-xs text-center py-8">Загрузка провайдеров...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Provider Edit Modal -->
+                <div id="providerModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    <div class="bg-slate-900 border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+                        <div class="flex items-center justify-between mb-5">
+                            <h3 class="text-sm font-bold text-slate-200">Настройка: <span id="editProviderName" class="text-emerald-400"></span></h3>
+                            <button onclick="closeProviderModal()" class="text-slate-500 hover:text-slate-300 text-lg cursor-pointer">&times;</button>
+                        </div>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="text-[10px] text-slate-500 font-bold uppercase block mb-1">Base URL</label>
+                                <input id="editProviderUrl" type="text" class="w-full bg-slate-800 border border-white/5 rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-emerald-500/50 outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-slate-500 font-bold uppercase block mb-1">Модель</label>
+                                <input id="editProviderModel" type="text" class="w-full bg-slate-800 border border-white/5 rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-emerald-500/50 outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-slate-500 font-bold uppercase block mb-1">API Ключ</label>
+                                <input id="editProviderKey" type="password" class="w-full bg-slate-800 border border-white/5 rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-emerald-500/50 outline-none" placeholder="Оставьте пустым чтобы не менять">
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="text-[10px] text-slate-500 font-bold uppercase block mb-1">Temperature</label>
+                                    <input id="editProviderTemp" type="number" step="0.1" min="0" max="2" class="w-full bg-slate-800 border border-white/5 rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-emerald-500/50 outline-none">
+                                </div>
+                                <div>
+                                    <label class="text-[10px] text-slate-500 font-bold uppercase block mb-1">Max Tokens</label>
+                                    <input id="editProviderMaxTokens" type="number" min="-1" class="w-full bg-slate-800 border border-white/5 rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-emerald-500/50 outline-none" placeholder="-1 = без лимита">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex justify-end gap-3 mt-6">
+                            <button onclick="closeProviderModal()" class="px-4 py-2 bg-white/5 border border-white/5 text-slate-400 text-xs font-semibold rounded-lg hover:text-slate-200 transition-all cursor-pointer">Отмена</button>
+                            <button onclick="saveProviderSettings()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-955 text-xs font-bold rounded-lg transition-all shadow-md cursor-pointer">Сохранить</button>
                         </div>
                     </div>
                 </div>
@@ -1934,6 +2089,26 @@
         let skills = {};
         let currentEditSkillId = 'core_agent';
 
+        function toggleTheme() {
+            const html = document.documentElement;
+            const current = html.getAttribute('data-theme');
+            const next = current === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', next);
+            html.classList.toggle('dark', next === 'dark');
+            html.classList.toggle('light', next === 'light');
+            document.getElementById('themeToggle').textContent = next === 'dark' ? '☀️' : '🌙';
+            localStorage.setItem('theme', next);
+        }
+
+        (function initTheme() {
+            const saved = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', saved);
+            document.documentElement.classList.toggle('dark', saved === 'dark');
+            document.documentElement.classList.toggle('light', saved === 'light');
+            const btn = document.getElementById('themeToggle');
+            if (btn) btn.textContent = saved === 'dark' ? '☀️' : '🌙';
+        })();
+
         async function setMainMode(mode) {
             const chatSide = document.getElementById('chatSidebarContainer');
             const chatSideInfo = document.getElementById('selectedModelLabel').parentElement;
@@ -1976,22 +2151,25 @@
         function toggleOrchestratorView(view) {
             const runnerView = document.getElementById('orchViewRunner');
             const skillsView = document.getElementById('orchViewSkills');
+            const providersView = document.getElementById('orchViewProviders');
             const btnRun = document.getElementById('viewBtnRunner');
             const btnSkills = document.getElementById('viewBtnSkills');
-            
-            if (view === 'runner') {
-                runnerView.classList.remove('hidden');
-                skillsView.classList.add('hidden');
-                
-                btnRun.className = 'px-3.5 py-2 bg-emerald-600 text-slate-955 text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer';
-                btnSkills.className = 'px-3.5 py-2 bg-white/5 border border-white/5 text-slate-350 hover:text-slate-250 text-xs font-semibold rounded-xl transition-all cursor-pointer';
-            } else {
-                runnerView.classList.add('hidden');
-                skillsView.classList.remove('hidden');
-                
-                btnRun.className = 'px-3.5 py-2 bg-white/5 border border-white/5 text-slate-355 hover:text-slate-250 text-xs font-semibold rounded-xl transition-all cursor-pointer';
-                btnSkills.className = 'px-3.5 py-2 bg-emerald-600 text-slate-955 text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer';
-            }
+            const btnProviders = document.getElementById('viewBtnProviders');
+
+            const views = [runnerView, skillsView, providersView];
+            const btns = [btnRun, btnSkills, btnProviders];
+            const activeIdx = view === 'runner' ? 0 : view === 'skills' ? 1 : 2;
+
+            views.forEach((v, i) => v.classList.toggle('hidden', i !== activeIdx));
+            btns.forEach((b, i) => {
+                if (i === activeIdx) {
+                    b.className = 'px-3.5 py-2 bg-emerald-600 text-slate-955 text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer';
+                } else {
+                    b.className = 'px-3.5 py-2 bg-white/5 border border-white/5 text-slate-350 hover:text-slate-250 text-xs font-semibold rounded-xl transition-all cursor-pointer';
+                }
+            });
+
+            if (view === 'providers') loadProviders();
         }
         
         async function loadSkills() {
@@ -2102,7 +2280,158 @@
                 alert("Ошибка сохранения: " + err.message);
             }
         }
-        
+
+        async function loadProviders() {
+            try {
+                const res = await fetch('/api/orchestrator/providers');
+                const data = await res.json();
+                const container = document.getElementById('providersList');
+                if (!container) return;
+                container.innerHTML = '';
+
+                const providers = data.providers || [];
+                document.getElementById('providerCount').textContent = providers.filter(p => p.enabled).length;
+
+                providers.forEach(p => {
+                    const card = document.createElement('div');
+                    card.className = `p-4 rounded-2xl border transition-all ${p.enabled ? 'bg-slate-900/60 border-emerald-500/20' : 'bg-slate-900/30 border-white/5 opacity-60'}`;
+                    const typeColors = {
+                        'llama-server': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+                        'openai-compatible': 'bg-violet-500/10 text-violet-400 border-violet-500/20',
+                        'anthropic': 'bg-orange-500/10 text-orange-400 border-orange-500/20',
+                    };
+                    const typeClass = typeColors[p.type] || 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+                    card.innerHTML = `
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-full ${p.enabled ? 'bg-emerald-500' : 'bg-slate-600'}"></span>
+                                <span class="text-sm font-bold text-slate-200">${p.name}</span>
+                                <span class="px-2 py-0.5 rounded border text-[9px] font-bold ${typeClass}">${p.type}</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button onclick="testProvider('${p.name}')" class="px-2.5 py-1 bg-white/5 border border-white/5 text-slate-400 hover:text-slate-200 text-[10px] font-semibold rounded-lg transition-all cursor-pointer">Тест</button>
+                                <button onclick="editProvider('${p.name}')" class="px-2.5 py-1 bg-white/5 border border-white/5 text-slate-400 hover:text-slate-200 text-[10px] font-semibold rounded-lg transition-all cursor-pointer">Настроить</button>
+                                <button onclick="toggleProvider('${p.name}')" class="px-2.5 py-1 ${p.enabled ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-white/5 border-white/5 text-slate-400'} text-[10px] font-semibold rounded-lg transition-all cursor-pointer">
+                                    ${p.enabled ? 'Вкл' : 'Выкл'}
+                                </button>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-[10px]">
+                            <div class="text-slate-500">URL: <span class="text-slate-300">${p.base_url || '—'}</span></div>
+                            <div class="text-slate-500">Модель: <span class="text-slate-300">${p.model || 'default'}</span></div>
+                            <div class="text-slate-500">Temp: <span class="text-slate-300">${p.temperature}</span></div>
+                            <div class="text-slate-500">Max tokens: <span class="text-slate-300">${p.max_tokens === -1 ? '∞' : p.max_tokens}</span></div>
+                            <div class="text-slate-500">API ключ: <span class="text-slate-300">${p.has_key ? '✓ задан' : '✗ не задан'}</span></div>
+                            <div class="text-slate-500">Роль: <span class="text-slate-300">${(p.role || []).join(', ') || '—'}</span></div>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+
+                // Load router status
+                const routerRes = await fetch('/api/orchestrator/router/status');
+                const routerData = await routerRes.json();
+                document.getElementById('routerStrategy').value = routerData.strategy || 'hybrid';
+                document.getElementById('complexityThreshold').textContent = routerData.complexity_threshold || 0.7;
+            } catch (err) {
+                console.error("Error loading providers:", err);
+            }
+        }
+
+        async function testProvider(name) {
+            try {
+                const res = await fetch(`/api/orchestrator/providers/${name}/test`, { method: 'POST' });
+                const data = await res.json();
+                if (data.ok) {
+                    alert(`✓ ${name}: OK (${data.duration_ms}ms)`);
+                } else {
+                    alert(`✗ ${name}: ${data.error || 'Failed'}`);
+                }
+            } catch (err) {
+                alert(`Ошибка теста: ${err.message}`);
+            }
+        }
+
+        async function toggleProvider(name) {
+            try {
+                const res = await fetch(`/api/orchestrator/providers/${name}/toggle`, { method: 'POST' });
+                const data = await res.json();
+                loadProviders();
+            } catch (err) {
+                alert(`Ошибка: ${err.message}`);
+            }
+        }
+
+        let editingProvider = null;
+
+        async function editProvider(name) {
+            try {
+                const res = await fetch('/api/orchestrator/providers');
+                const data = await res.json();
+                const provider = (data.providers || []).find(p => p.name === name);
+                if (!provider) return;
+                editingProvider = name;
+
+                document.getElementById('editProviderName').textContent = name;
+                document.getElementById('editProviderUrl').value = provider.base_url || '';
+                document.getElementById('editProviderModel').value = provider.model || '';
+                document.getElementById('editProviderKey').value = '';
+                document.getElementById('editProviderKey').placeholder = provider.has_key ? '•••••••• (ключ задан)' : 'Введите API ключ';
+                document.getElementById('editProviderTemp').value = provider.temperature;
+                document.getElementById('editProviderMaxTokens').value = provider.max_tokens === -1 ? '' : provider.max_tokens;
+                document.getElementById('providerModal').classList.remove('hidden');
+            } catch (err) {
+                alert(`Ошибка: ${err.message}`);
+            }
+        }
+
+        function closeProviderModal() {
+            document.getElementById('providerModal').classList.add('hidden');
+            editingProvider = null;
+        }
+
+        async function saveProviderSettings() {
+            if (!editingProvider) return;
+            const payload = {
+                base_url: document.getElementById('editProviderUrl').value,
+                model: document.getElementById('editProviderModel').value,
+                temperature: parseFloat(document.getElementById('editProviderTemp').value) || 0.7,
+                max_tokens: parseInt(document.getElementById('editProviderMaxTokens').value) || -1,
+            };
+            const key = document.getElementById('editProviderKey').value;
+            if (key) payload.api_key = key;
+
+            try {
+                const res = await fetch(`/api/orchestrator/providers/${editingProvider}/update`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    closeProviderModal();
+                    loadProviders();
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Unknown'));
+                }
+            } catch (err) {
+                alert(`Ошибка: ${err.message}`);
+            }
+        }
+
+        async function setRouterStrategy() {
+            const strategy = document.getElementById('routerStrategy').value;
+            try {
+                await fetch('/api/orchestrator/router/strategy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ strategy })
+                });
+            } catch (err) {
+                alert(`Ошибка: ${err.message}`);
+            }
+        }
+
         async function loadWebMonitorLogs() {
             try {
                 const res = await fetch('/api/orchestrator/logs');

@@ -1,5 +1,6 @@
 import sys
 import json
+import os
 from pathlib import Path
 from flask import Blueprint, jsonify, request
 
@@ -9,10 +10,13 @@ ORCHESTRATOR_DIR = APP_DIR.parent / "llm_orchestrator"
 if str(ORCHESTRATOR_DIR) not in sys.path:
     sys.path.append(str(ORCHESTRATOR_DIR))
 
-from gateway import LlamaServerLLM
+from gateway import BaseLLM, create_llm_from_config
+from providers import LlamaServerLLM, MockLLM, OpenAICompatibleLLM, AnthropicLLM, PROVIDER_TYPES
 from tools import Tool, ToolRegistry, PythonSandbox, WebMonitorTool
 from skills import SkillsManager
-from main import run_agentic_loop, is_server_online, MockLLM
+from config import Config, ProviderConfig, RouterConfig
+from router import RouterLLM, classify_complexity
+from main import run_agentic_loop
 
 orchestrator_bp = Blueprint("orchestrator", __name__)
 
@@ -263,6 +267,136 @@ def get_logs():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@orchestrator_bp.route("/api/orchestrator/providers", methods=["GET"])
+def get_providers():
+    try:
+        config = Config.from_env()
+        providers = []
+        for p in config.providers:
+            providers.append({
+                "name": p.name,
+                "type": p.type,
+                "enabled": p.enabled,
+                "base_url": p.base_url,
+                "model": p.model,
+                "temperature": p.temperature,
+                "max_tokens": p.max_tokens,
+                "role": p.role,
+                "has_key": bool(p.api_key),
+            })
+        return jsonify({"providers": providers})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@orchestrator_bp.route("/api/orchestrator/providers/<name>/test", methods=["POST"])
+def test_provider(name):
+    try:
+        config = Config.from_env()
+        provider_cfg = None
+        for p in config.providers:
+            if p.name == name:
+                provider_cfg = p
+                break
+        if not provider_cfg:
+            return jsonify({"ok": False, "error": f"Provider '{name}' not found"}), 404
+
+        provider = OpenAICompatibleLLM(
+            base_url=provider_cfg.base_url,
+            api_key=provider_cfg.api_key,
+            model=provider_cfg.model,
+        ) if provider_cfg.type == "openai-compatible" else AnthropicLLM(
+            api_key=provider_cfg.api_key,
+            model=provider_cfg.model,
+        ) if provider_cfg.type == "anthropic" else LlamaServerLLM(
+            base_url=provider_cfg.base_url,
+        )
+
+        import time
+        start = time.time()
+        result = provider.generate(prompt="Hello", max_tokens=10)
+        duration = time.time() - start
+
+        return jsonify({
+            "ok": result.get("ok", False),
+            "provider": name,
+            "duration_ms": round(duration * 1000, 1),
+            "error": result.get("error"),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@orchestrator_bp.route("/api/orchestrator/providers/<name>/toggle", methods=["POST"])
+def toggle_provider(name):
+    try:
+        config = Config.from_env()
+        env_key = f"LLM_{name.upper()}_ENABLED"
+        current = os.getenv(env_key, "true").lower()
+        new_value = "false" if current == "true" else "true"
+        os.environ[env_key] = new_value
+        return jsonify({"name": name, "enabled": new_value == "true"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@orchestrator_bp.route("/api/orchestrator/providers/<name>/update", methods=["POST"])
+def update_provider(name):
+    try:
+        data = request.get_json() or {}
+        env_prefix = f"LLM_{name.upper()}"
+
+        if "api_key" in data:
+            os.environ[f"{env_prefix}_KEY"] = data["api_key"]
+        if "base_url" in data:
+            os.environ[f"{env_prefix}_URL"] = data["base_url"]
+        if "model" in data:
+            os.environ[f"{env_prefix}_MODEL"] = data["model"]
+        if "temperature" in data:
+            os.environ[f"{env_prefix}_TEMPERATURE"] = str(data["temperature"])
+        if "max_tokens" in data:
+            os.environ[f"{env_prefix}_MAX_TOKENS"] = str(data["max_tokens"])
+        if "enabled" in data:
+            os.environ[f"{env_prefix}_ENABLED"] = "true" if data["enabled"] else "false"
+
+        return jsonify({"ok": True, "name": name})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@orchestrator_bp.route("/api/orchestrator/router/status", methods=["GET"])
+def router_status():
+    try:
+        config = Config.from_env()
+        return jsonify({
+            "strategy": config.router.strategy,
+            "fallback_chain": config.router.fallback_chain,
+            "classification_provider": config.router.classification_provider,
+            "tool_call_provider": config.router.tool_call_provider,
+            "complexity_threshold": config.router.complexity_threshold,
+            "providers_count": len([p for p in config.providers if p.enabled]),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@orchestrator_bp.route("/api/orchestrator/router/strategy", methods=["POST"])
+def set_router_strategy():
+    try:
+        data = request.get_json() or {}
+        strategy = data.get("strategy", "hybrid")
+        if strategy not in ("hybrid", "local-first", "api-first"):
+            return jsonify({"error": "Invalid strategy"}), 400
+        os.environ["ROUTE_STRATEGY"] = strategy
+        return jsonify({"strategy": strategy})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@orchestrator_bp.route("/api/orchestrator/complexity", methods=["POST"])
+def check_complexity():
+    try:
+        data = request.get_json() or {}
+        prompt = data.get("prompt", "")
+        score = classify_complexity(prompt)
+        return jsonify({"prompt": prompt[:100], "complexity": score, "threshold": 0.7})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @orchestrator_bp.route("/api/orchestrator/run", methods=["POST"])
 def run_orchestrator():
     data = request.get_json() or {}
@@ -276,18 +410,14 @@ def run_orchestrator():
         erp_tools.base_url = erp_url.rstrip("/")
     if erp_service_token:
         erp_tools.service_token = erp_service_token
-    
+
     if not prompt:
         return jsonify({"ok": False, "error": "Промпт пуст"}), 400
-        
-    from app import config as runner_config
-    server_url = f"http://{runner_config.settings['host']}:{runner_config.settings['port']}"
-    
-    if is_server_online(server_url):
-        llm = LlamaServerLLM(base_url=server_url)
-    else:
-        llm = MockLLM()
-        
+
+    # Use new provider system
+    config = Config.from_env()
+    llm = create_llm_from_config(config)
+
     steps_log = []
     def log_callback(msg):
         steps_log.append(msg)
@@ -298,7 +428,7 @@ def run_orchestrator():
     classification = dispatcher.classify(prompt)
     scope_raw = classification.get("scope", "general")
     reason = classification.get("reason", "По умолчанию")
-    
+
     # Сопоставляем категорию классификатора с конфигурацией скоупов/навыков
     if scope_raw in ["hr_single", "hr_summary"]:
         scope = "hr"
@@ -315,17 +445,24 @@ def run_orchestrator():
     elif scope_raw == "task_constructor":
         scope = "general"
         skill_id = "task_constructor_assistant"
+    elif scope_raw == "code_search":
+        scope = "code_search"
+        skill_id = "core_agent"
+    elif scope_raw == "entity_schema":
+        scope = "entity_schema"
+        skill_id = "core_agent"
     else:
         scope = "general"
         skill_id = "core_agent"
 
-    log_callback(f"🤖 [Маршрутизатор] Анализ запроса... Направление: {scope_raw} -> Скоуп: '{scope}', Навык: '{skill_id}' (Обоснование: {reason})")
-        
+    provider_name = getattr(llm, 'provider', 'local')
+    log_callback(f"🤖 [Маршрутизатор] Направление: {scope_raw} -> Скоуп: '{scope}', Навык: '{skill_id}', Провайдер: {provider_name}")
+
     # Загружаем соответствующий системный промпт
     skills = skills_manager.list_skills()
     selected_skill = skills.get(skill_id, skills.get("core_agent"))
     system_prompt = selected_skill["system_prompt"] if selected_skill else None
-    
+
     try:
         result = run_agentic_loop(
             llm=llm,
@@ -339,7 +476,8 @@ def run_orchestrator():
         return jsonify({
             "ok": True,
             "steps": steps_log,
-            "response": result.get("content", "") if result else ""
+            "response": result.get("content", "") if result else "",
+            "provider": provider_name,
         })
     except Exception as e:
         return jsonify({"ok": False, "error": str(e), "steps": steps_log}), 500

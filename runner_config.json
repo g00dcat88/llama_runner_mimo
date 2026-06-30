@@ -7,7 +7,7 @@
   ],
   "custom_models": [],
   "server_exe": "C:\\llama.cpp\\llama-server.exe",
-  "selected_model": "F:\\Models\\lmstudio-community\\gemma-4-26B-A4B-it-QAT-GGUF\\gemma-4-26B-A4B-it-QAT-Q4_0.gguf",
+  "selected_model": "F:\\Models\\lmstudio-community\\gemma-4-12B-it-QAT-GGUF\\mmproj-gemma-4-12B-it-QAT-BF16.gguf",
   "profiles": {},
   "settings": {
     "host": "127.0.0.1",
