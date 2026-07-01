@@ -1,8 +1,18 @@
 import sys
 import json
 import os
+import urllib.request
+import urllib.error
 from pathlib import Path
 from flask import Blueprint, jsonify, request
+
+
+def is_server_online(url: str) -> bool:
+    try:
+        with urllib.request.urlopen(url + "/health", timeout=1) as resp:
+            return resp.status < 500
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return False
 
 # Add llm_orchestrator to path so we can import gateway, tools, skills, etc.
 APP_DIR = Path(__file__).resolve().parent
@@ -12,18 +22,36 @@ if str(ORCHESTRATOR_DIR) not in sys.path:
 
 from gateway import BaseLLM, create_llm_from_config
 from providers import LlamaServerLLM, MockLLM, OpenAICompatibleLLM, AnthropicLLM, PROVIDER_TYPES
-from tools import Tool, ToolRegistry, PythonSandbox, WebMonitorTool
+from tools import Tool, ToolRegistry, PythonSandbox, WebMonitorTool, ERPIntegrationTools
 from skills import SkillsManager
 from config import Config, ProviderConfig, RouterConfig
 from router import RouterLLM, classify_complexity
 from main import run_agentic_loop
+from dispatcher import QueryDispatcher
+from conversation import ConversationBuffer
+from rag import BM25SearchEngine
+from cache import ResponseCache
+from rate_limiter import DualRateLimiter
+from metrics import MetricsCollector
+from session_store import SessionStore
+from self_learning import SelfLearner
+from guardrails import InputGuardrails, OutputGuardrails
+from token_manager import TokenManager
 
 orchestrator_bp = Blueprint("orchestrator", __name__)
 
+# Persistent session storage and self-learning
+_session_store = SessionStore(APP_DIR / "orchestrator_sessions.db")
+_learner = SelfLearner(_session_store)
+
+
+
 @orchestrator_bp.before_request
 def check_api_key():
-    # Exclude health-check endpoint from API key requirement
+    # Exclude health-check and localhost requests from API key requirement
     if request.path == "/api/orchestrator/status":
+        return
+    if request.remote_addr in ("127.0.0.1", "::1"):
         return
     from app import config as runner_config
     expected_key = runner_config.settings.get("orchestrator_api_key")
@@ -397,87 +425,168 @@ def check_complexity():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@orchestrator_bp.route("/api/orchestrator/learning/patterns", methods=["GET"])
+def get_learning_patterns():
+    try:
+        user_id = request.args.get("user_id")
+        scope = request.args.get("scope")
+        limit = int(request.args.get("limit", 50))
+        patterns = _session_store.get_patterns(user_id=user_id, scope=scope, limit=limit)
+        return jsonify({"patterns": patterns, "total": len(patterns)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@orchestrator_bp.route("/api/orchestrator/learning/stats", methods=["GET"])
+def get_learning_stats():
+    try:
+        user_id = request.args.get("user_id", "anonymous")
+        stats = _session_store.get_user_stats(user_id)
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@orchestrator_bp.route("/api/orchestrator/learning/feedback", methods=["POST"])
+def learning_feedback():
+    try:
+        data = request.get_json() or {}
+        pattern_id = data.get("pattern_id")
+        rating = data.get("rating", 1.0)
+        if not pattern_id:
+            return jsonify({"error": "pattern_id required"}), 400
+        _learner.record_feedback(pattern_id, rating)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@orchestrator_bp.route("/api/orchestrator/session/clear", methods=["POST"])
+def clear_session():
+    data = request.get_json() or {}
+    user_id = data.get("user_id", "anonymous")
+    session_id = data.get("session_id", "default")
+    _session_store.clear_session(user_id, session_id)
+    return jsonify({"ok": True})
+
+@orchestrator_bp.route("/api/orchestrator/session/history", methods=["POST"])
+def get_session_history():
+    data = request.get_json() or {}
+    user_id = data.get("user_id", "anonymous")
+    session_id = data.get("session_id", "default")
+    messages = _session_store.get_history(user_id, session_id)
+    return jsonify({"messages": messages})
+
 @orchestrator_bp.route("/api/orchestrator/run", methods=["POST"])
 def run_orchestrator():
-    data = request.get_json() or {}
-    prompt = data.get("prompt", "")
-    max_retries = int(data.get("max_retries", 3))
-
-    # Apply secure dynamic configurations for calling back the ERP
-    erp_url = data.get("erp_url")
-    erp_service_token = data.get("erp_service_token")
-    if erp_url:
-        erp_tools.base_url = erp_url.rstrip("/")
-    if erp_service_token:
-        erp_tools.service_token = erp_service_token
-
-    if not prompt:
-        return jsonify({"ok": False, "error": "Промпт пуст"}), 400
-
-    # Use new provider system
-    config = Config.from_env()
-    llm = create_llm_from_config(config)
-
-    steps_log = []
-    def log_callback(msg):
-        steps_log.append(msg)
-
-    # Инициализируем классификатор и определяем скоуп и навык
-    from dispatcher import QueryDispatcher
-    dispatcher = QueryDispatcher(llm)
-    classification = dispatcher.classify(prompt)
-    scope_raw = classification.get("scope", "general")
-    reason = classification.get("reason", "По умолчанию")
-
-    # Сопоставляем категорию классификатора с конфигурацией скоупов/навыков
-    if scope_raw in ["hr_single", "hr_summary"]:
-        scope = "hr"
-        skill_id = "hr_assistant"
-    elif scope_raw in ["fsm_single", "fsm_summary"]:
-        scope = "projects"
-        skill_id = "projects_assistant"
-    elif scope_raw == "python_sandbox":
-        scope = "python_sandbox"
-        skill_id = "python_coder"
-    elif scope_raw == "web_monitor":
-        scope = "web_monitor"
-        skill_id = "web_monitoring"
-    elif scope_raw == "task_constructor":
-        scope = "general"
-        skill_id = "task_constructor_assistant"
-    elif scope_raw == "code_search":
-        scope = "code_search"
-        skill_id = "core_agent"
-    elif scope_raw == "entity_schema":
-        scope = "entity_schema"
-        skill_id = "core_agent"
-    else:
-        scope = "general"
-        skill_id = "core_agent"
-
-    provider_name = getattr(llm, 'provider', 'local')
-    log_callback(f"🤖 [Маршрутизатор] Направление: {scope_raw} -> Скоуп: '{scope}', Навык: '{skill_id}', Провайдер: {provider_name}")
-
-    # Загружаем соответствующий системный промпт
-    skills = skills_manager.list_skills()
-    selected_skill = skills.get(skill_id, skills.get("core_agent"))
-    system_prompt = selected_skill["system_prompt"] if selected_skill else None
-
     try:
+        data = request.get_json() or {}
+        prompt = data.get("prompt", "")
+        user_id = data.get("user_id", "anonymous")
+        session_id = data.get("session_id", "default")
+
+        # Apply secure dynamic configurations for calling back the ERP
+        erp_url = data.get("erp_url")
+        erp_service_token = data.get("erp_service_token")
+        if erp_url:
+            erp_tools.base_url = erp_url.rstrip("/")
+        if erp_service_token:
+            erp_tools.service_token = erp_service_token
+
+        if not prompt:
+            return jsonify({"ok": False, "error": "Промпт пуст"}), 400
+
+        # Pool-aware routing: use complexity to select the right model slot
+        try:
+            from app import pool
+            from router import classify_complexity
+            complexity = classify_complexity(prompt)
+            slot = pool.get_slot_for_complexity(complexity)
+            if slot and slot.is_running():
+                target_port = slot.port
+                provider_name = f"local:{slot.id}"
+                llm = LlamaServerLLM(base_url=f"http://127.0.0.1:{target_port}")
+            else:
+                config = Config.from_env()
+                llm = create_llm_from_config(config)
+                provider_name = getattr(llm, 'provider', 'local')
+        except Exception:
+            config = Config.from_env()
+            llm = create_llm_from_config(config)
+            provider_name = getattr(llm, 'provider', 'local')
+
+        # Initialize all required dependencies
+        project_dir = ORCHESTRATOR_DIR
+        cache = ResponseCache(str(project_dir / "cache.db"))
+        rate_limiter = DualRateLimiter(llm_rate=5, llm_burst=10)
+        metrics = MetricsCollector(str(project_dir / "metrics.db"))
+        input_guard = InputGuardrails()
+        output_guard = OutputGuardrails()
+        token_mgr = TokenManager(max_context=config.conversation_max_messages or 4096)
+
+        rag_engine = BM25SearchEngine()
+        knowledge_dir = project_dir / "knowledge_base"
+        if knowledge_dir.exists():
+            rag_engine.index_directory(knowledge_dir)
+
+        # Load conversation history from persistent store
+        history = _session_store.get_history(user_id, session_id, limit=config.conversation_max_messages)
+        conversation = ConversationBuffer(max_messages=config.conversation_max_messages, user_id=user_id)
+        for msg in history:
+            if msg["role"] == "user":
+                conversation.add_user_message(msg["content"])
+            else:
+                conversation.add_assistant_message(msg["content"])
+
+        dispatcher = QueryDispatcher(llm)
+
+        # Disable self-critique by default — it adds an extra LLM call
+        config.self_critique_enabled = data.get("self_critique", False)
+
+        # Skill_id from ERP frontend takes priority over dispatcher scope
+        skill_id = data.get("skill_id")
+        skills = skills_manager.list_skills()
+        if skill_id and skill_id in skills:
+            # Override dispatcher scope-based prompt with skill system_prompt
+            config.self_critique_enabled = False  # skip extra LLM call for module agents
+
         result = run_agentic_loop(
             llm=llm,
             registry=registry,
             user_prompt=prompt,
-            max_retries=max_retries,
-            system_prompt=system_prompt,
-            log_callback=log_callback,
-            scope=scope
+            dispatcher=dispatcher,
+            conversation=conversation,
+            rag_engine=rag_engine,
+            config=config,
+            cache=cache,
+            rate_limiter=rate_limiter,
+            metrics=metrics,
+            input_guard=input_guard,
+            output_guard=output_guard,
+            token_mgr=token_mgr,
+            self_learner=_learner,
+            skill_id=skill_id,
+            skills_manager=skills_manager,
         )
+
+        # Save conversation to persistent store
+        scope = result.get("scope", "general")
+        tools_used = result.get("tool_calls", [])
+        _session_store.save_message(user_id, session_id, "user", prompt, scope=scope)
+        if result.get("ok"):
+            _session_store.save_message(user_id, session_id, "assistant",
+                                        result.get("content", ""),
+                                        scope=scope, tool_calls=tools_used)
+
+        # Get updated history
+        history = _session_store.get_history(user_id, session_id, limit=config.conversation_max_messages)
+
         return jsonify({
-            "ok": True,
-            "steps": steps_log,
-            "response": result.get("content", "") if result else "",
+            "ok": result.get("ok", False),
+            "response": result.get("content", ""),
+            "user_id": user_id,
             "provider": provider_name,
+            "scope": scope,
+            "duration_ms": result.get("duration_ms", 0),
+            "tools_used": tools_used,
+            "history": history,
         })
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e), "steps": steps_log}), 500
+        return jsonify({"ok": False, "error": str(e)}), 500

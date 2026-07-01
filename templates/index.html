@@ -559,6 +559,11 @@
                     <!-- Bottom Prompt Input -->
                     <div class="p-6 border-t border-white/5 bg-slate-950/30 backdrop-blur-md shrink-0">
                         <div class="max-w-4xl mx-auto flex gap-3.5 items-end">
+                            <div class="flex-shrink-0 flex flex-col gap-1">
+                                <label class="text-[10px] text-slate-500 font-semibold uppercase">Сотрудник</label>
+                                <input id="orchUserId" type="text" placeholder="user_id"
+                                       class="w-28 bg-slate-900/50 border border-white/10 rounded-xl px-3 py-2 text-xs text-slate-300 placeholder-slate-600 focus:ring-1 focus:ring-emerald-500/30 focus:border-emerald-500/30 transition-all">
+                            </div>
                             <div class="flex-1 relative glass-panel rounded-2xl overflow-hidden focus-within:border-emerald-500/30 transition-all">
                                 <textarea id="orchPromptInput" rows="2" class="w-full bg-transparent border-0 px-4 py-3.5 text-sm text-slate-200 placeholder-slate-500 resize-none focus:ring-0 focus:outline-none" placeholder="Введите задачу для оркестратора... (например: посчитай 105 * 2 + 10 или проверь сайт httpbin.org)"></textarea>
                             </div>
@@ -735,6 +740,9 @@
                 <button onclick="setSettingsTab('profiles')" id="tabBtnProfiles" class="flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors">
                     Профили
                 </button>
+                <button onclick="setSettingsTab('models')" id="tabBtnModels" class="flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors">
+                    Модели
+                </button>
             </div>
 
             <!-- Modal Content (Scrollable) -->
@@ -884,6 +892,27 @@
                     </div>
                 </div>
 
+                <!-- Section: Models (Multi-model pool) -->
+                <div id="settingsTabModels" class="space-y-5 hidden">
+                    <div class="p-3.5 bg-white/5 border border-white/5 rounded-xl space-y-3">
+                        <label class="block text-xs font-semibold text-slate-400">Профиль загрузки</label>
+                        <select id="loadProfileSelect" class="w-full bg-slate-900 border border-white/5 text-slate-300 rounded-xl px-3.5 py-2.5 focus:border-emerald-500/50 outline-none font-semibold text-xs cursor-pointer" onchange="applyLoadProfile()">
+                        </select>
+                        <p id="loadProfileDesc" class="text-[10px] text-slate-500"></p>
+                    </div>
+
+                    <div id="poolSlotsContainer" class="space-y-3">
+                        <!-- Slots rendered by JS -->
+                    </div>
+
+                    <div class="flex gap-2">
+                        <button onclick="poolStartAll()" class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-slate-955 text-xs font-bold rounded-xl transition-all">Запустить все</button>
+                        <button onclick="poolStopAll()" class="flex-1 py-2.5 bg-red-600/80 hover:bg-red-500 text-white text-xs font-bold rounded-xl transition-all">Остановить все</button>
+                    </div>
+
+                    <div id="poolStatus" class="text-[10px] text-slate-500 font-mono"></div>
+                </div>
+
             </div>
 
             <!-- Save settings footer button -->
@@ -899,6 +928,14 @@
     <!-- JS Logic -->
     <script>
         let cfg = {};
+
+        function orchHeaders(extra) {
+            const key = cfg?.settings?.orchestrator_api_key;
+            const h = extra ? { ...extra } : {};
+            if (key) h['X-Orchestrator-API-Key'] = key;
+            return h;
+        }
+
         let messages = [];
         let isGenerating = false;
         let abortController = null;
@@ -909,6 +946,7 @@
         let currentChatId = null;
         let chatTitle = "Новый диалог";
         let chatCreatedAt = null;
+        let orchSessionId = 'orch_' + Date.now().toString(36);
 
         // Marked Custom Renderer setup for codeblocks & highlight.js integration
         marked.use({
@@ -1000,16 +1038,18 @@
             const btnRuntime = document.getElementById('tabBtnRuntime');
             const btnSampling = document.getElementById('tabBtnSampling');
             const btnProfiles = document.getElementById('tabBtnProfiles');
+            const btnModels = document.getElementById('tabBtnModels');
 
             const viewRuntime = document.getElementById('settingsTabRuntime');
             const viewSampling = document.getElementById('settingsTabSampling');
             const viewProfiles = document.getElementById('settingsTabProfiles');
+            const viewModels = document.getElementById('settingsTabModels');
 
             // Reset
-            [btnRuntime, btnSampling, btnProfiles].forEach(btn => {
+            [btnRuntime, btnSampling, btnProfiles, btnModels].forEach(btn => {
                 btn.className = "flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors";
             });
-            [viewRuntime, viewSampling, viewProfiles].forEach(view => view.classList.add('hidden'));
+            [viewRuntime, viewSampling, viewProfiles, viewModels].forEach(view => view.classList.add('hidden'));
 
             if (tab === 'runtime') {
                 btnRuntime.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-400 transition-colors";
@@ -1017,6 +1057,10 @@
             } else if (tab === 'sampling') {
                 btnSampling.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-400 transition-colors";
                 viewSampling.classList.remove('hidden');
+            } else if (tab === 'models') {
+                btnModels.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-400 transition-colors";
+                viewModels.classList.remove('hidden');
+                loadPoolUI();
             } else {
                 btnProfiles.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-400 transition-colors";
                 viewProfiles.classList.remove('hidden');
@@ -2053,15 +2097,148 @@
             try {
                 const res = await fetch('/api/profiles/' + encodeURIComponent(name), { method: 'POST' });
                 const data = await res.json();
-                if (data.ok) { 
-                    cfg.settings = data.settings; 
-                    populateSettings(data.settings); 
-                    addSystemMessage('Профиль настроек загружен: ' + name); 
+                if (data.ok) {
+                    cfg.settings = data.settings;
+                    populateSettings(data.settings);
+                    addSystemMessage('Профиль настроек загружен: ' + name);
                     closeSettings();
                 }
             } catch (err) {
                 alert('Ошибка загрузки профиля: ' + err.message);
             }
+        }
+
+        // ── Pool (Multi-model) functions ──────────────────────────────
+
+        async function loadPoolUI() {
+            try {
+                const res = await fetch('/api/pool/profiles');
+                const data = await res.json();
+                const select = document.getElementById('loadProfileSelect');
+                select.innerHTML = '';
+                for (const [id, p] of Object.entries(data.profiles)) {
+                    const opt = document.createElement('option');
+                    opt.value = id;
+                    opt.textContent = p.name;
+                    if (id === data.current) opt.selected = true;
+                    select.appendChild(opt);
+                }
+                const desc = document.getElementById('loadProfileDesc');
+                const current = data.profiles[data.current];
+                desc.textContent = current ? current.description : '';
+                renderPoolSlots();
+            } catch (err) {
+                console.error('Pool load error:', err);
+            }
+        }
+
+        async function applyLoadProfile() {
+            const profileId = document.getElementById('loadProfileSelect').value;
+            try {
+                await fetch('/api/pool/profile', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({profile: profileId})
+                });
+                const profiles = await fetch('/api/pool/profiles').then(r => r.json());
+                const p = profiles.profiles[profileId];
+                document.getElementById('loadProfileDesc').textContent = p ? p.description : '';
+                renderPoolSlots();
+            } catch (err) {
+                console.error('Apply profile error:', err);
+            }
+        }
+
+        async function renderPoolSlots() {
+            const container = document.getElementById('poolSlotsContainer');
+            container.innerHTML = '';
+            try {
+                const status = await fetch('/api/pool/status').then(r => r.json());
+                const models = await fetch('/api/models').then(r => r.json());
+                const lastUsed = status.last_used_slot;
+                const slots = status.slots || status;
+                for (const [sid, info] of Object.entries(slots)) {
+                    if (typeof info !== 'object') continue;
+                    const running = info.running;
+                    const ready = info.ready;
+                    const isActive = sid === lastUsed;
+                    const statusColor = ready ? 'bg-emerald-500' : (running ? 'bg-yellow-500' : 'bg-slate-600');
+                    const statusText = ready ? (isActive ? 'Активна' : 'Готов') : (running ? 'Запуск...' : 'Остановлен');
+                    const activeBadge = isActive ? '<span class="px-1.5 py-0.5 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded text-[8px] font-bold">СЕЙЧАС ОТВЕЧАЕТ</span>' : '';
+                    const div = document.createElement('div');
+                    div.className = `p-3.5 bg-white/5 border rounded-xl space-y-2 ${isActive ? 'border-emerald-500/30' : 'border-white/5'}`;
+                    div.innerHTML = `
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-full ${statusColor}"></span>
+                                <span class="text-xs font-bold text-slate-300">${sid.toUpperCase()}</span>
+                                <span class="text-[10px] text-slate-500">:${info.port}</span>
+                                ${activeBadge}
+                            </div>
+                            <span class="text-[10px] text-slate-500">${statusText}</span>
+                        </div>
+                        <select id="pool_model_${sid}" class="w-full bg-slate-900 border border-white/5 text-slate-400 rounded-lg px-2.5 py-1.5 text-[10px] focus:border-emerald-500/50 outline-none cursor-pointer">
+                            <option value="">-- выбрать модель --</option>
+                            ${models.map(m => `<option value="${m.path}" ${m.path === info.model ? 'selected' : ''}>${m.name} (${m.params || '?'})</option>`).join('')}
+                        </select>
+                        <div class="flex gap-2">
+                            <button onclick="poolAssignSlot('${sid}')" class="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 border border-white/5 rounded-lg text-[10px] text-slate-400 hover:text-white transition-all">Назначить</button>
+                            ${running
+                                ? `<button onclick="poolStopSlot('${sid}')" class="flex-1 py-1.5 bg-red-600/20 hover:bg-red-600/40 border border-red-500/20 rounded-lg text-[10px] text-red-400 hover:text-red-300 transition-all">Стоп</button>`
+                                : `<button onclick="poolStartSlot('${sid}')" class="flex-1 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/40 border border-emerald-500/20 rounded-lg text-[10px] text-emerald-400 hover:text-emerald-300 transition-all">Старт</button>`
+                            }
+                        </div>
+                    `;
+                    container.appendChild(div);
+                }
+                const summary = Object.entries(slots).filter(([k, v]) => typeof v === 'object').map(([k, v]) => `${k}: ${v.ready ? (k === lastUsed ? '▶' : '✓') : '✗'}`).join(' | ');
+                document.getElementById('poolStatus').textContent = summary + (lastUsed ? ` | Отвечает: ${lastUsed.toUpperCase()}` : '');
+            } catch (err) {
+                console.error('Render slots error:', err);
+            }
+        }
+
+        async function poolAssignSlot(slotId) {
+            const modelPath = document.getElementById('pool_model_' + slotId).value;
+            if (!modelPath) { alert('Выберите модель'); return; }
+            try {
+                const res = await fetch('/api/pool/slot/assign', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({slot_id: slotId, model_path: modelPath, ctx_size: parseInt(document.getElementById('set_ctx_size').value) || 8192, gpu_layers: document.getElementById('set_gpu_layers').value || 'auto'})
+                });
+                const data = await res.json();
+                if (data.ok) renderPoolSlots();
+                else alert(data.error);
+            } catch (err) { alert(err.message); }
+        }
+
+        async function poolStartSlot(slotId) {
+            try {
+                await fetch('/api/pool/slot/start', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({slot_id: slotId})});
+                setTimeout(renderPoolSlots, 2000);
+            } catch (err) { alert(err.message); }
+        }
+
+        async function poolStopSlot(slotId) {
+            try {
+                await fetch('/api/pool/slot/stop', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({slot_id: slotId})});
+                setTimeout(renderPoolSlots, 1000);
+            } catch (err) { alert(err.message); }
+        }
+
+        async function poolStartAll() {
+            try {
+                await fetch('/api/pool/start', {method: 'POST'});
+                setTimeout(renderPoolSlots, 3000);
+            } catch (err) { alert(err.message); }
+        }
+
+        async function poolStopAll() {
+            try {
+                await fetch('/api/pool/stop', {method: 'POST'});
+                setTimeout(renderPoolSlots, 1500);
+            } catch (err) { alert(err.message); }
         }
 
         function applyPreset() {
@@ -2174,7 +2351,7 @@
         
         async function loadSkills() {
             try {
-                const res = await fetch('/api/orchestrator/skills');
+                const res = await fetch('/api/orchestrator/skills', { headers: orchHeaders() });
                 skills = await res.json();
                 
                 // Selected option
@@ -2262,7 +2439,7 @@
             try {
                 const res = await fetch(`/api/orchestrator/skills/${currentEditSkillId}`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: orchHeaders({ 'Content-Type': 'application/json' }),
                     body: JSON.stringify({
                         name: name,
                         description: desc,
@@ -2283,7 +2460,7 @@
 
         async function loadProviders() {
             try {
-                const res = await fetch('/api/orchestrator/providers');
+                const res = await fetch('/api/orchestrator/providers', { headers: orchHeaders() });
                 const data = await res.json();
                 const container = document.getElementById('providersList');
                 if (!container) return;
@@ -2329,7 +2506,7 @@
                 });
 
                 // Load router status
-                const routerRes = await fetch('/api/orchestrator/router/status');
+                const routerRes = await fetch('/api/orchestrator/router/status', { headers: orchHeaders() });
                 const routerData = await routerRes.json();
                 document.getElementById('routerStrategy').value = routerData.strategy || 'hybrid';
                 document.getElementById('complexityThreshold').textContent = routerData.complexity_threshold || 0.7;
@@ -2340,7 +2517,7 @@
 
         async function testProvider(name) {
             try {
-                const res = await fetch(`/api/orchestrator/providers/${name}/test`, { method: 'POST' });
+                const res = await fetch(`/api/orchestrator/providers/${name}/test`, { method: 'POST', headers: orchHeaders() });
                 const data = await res.json();
                 if (data.ok) {
                     alert(`✓ ${name}: OK (${data.duration_ms}ms)`);
@@ -2354,7 +2531,7 @@
 
         async function toggleProvider(name) {
             try {
-                const res = await fetch(`/api/orchestrator/providers/${name}/toggle`, { method: 'POST' });
+                const res = await fetch(`/api/orchestrator/providers/${name}/toggle`, { method: 'POST', headers: orchHeaders() });
                 const data = await res.json();
                 loadProviders();
             } catch (err) {
@@ -2366,7 +2543,7 @@
 
         async function editProvider(name) {
             try {
-                const res = await fetch('/api/orchestrator/providers');
+                const res = await fetch('/api/orchestrator/providers', { headers: orchHeaders() });
                 const data = await res.json();
                 const provider = (data.providers || []).find(p => p.name === name);
                 if (!provider) return;
@@ -2404,7 +2581,7 @@
             try {
                 const res = await fetch(`/api/orchestrator/providers/${editingProvider}/update`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: orchHeaders({ 'Content-Type': 'application/json' }),
                     body: JSON.stringify(payload)
                 });
                 const data = await res.json();
@@ -2424,7 +2601,7 @@
             try {
                 await fetch('/api/orchestrator/router/strategy', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: orchHeaders({ 'Content-Type': 'application/json' }),
                     body: JSON.stringify({ strategy })
                 });
             } catch (err) {
@@ -2434,7 +2611,7 @@
 
         async function loadWebMonitorLogs() {
             try {
-                const res = await fetch('/api/orchestrator/logs');
+                const res = await fetch('/api/orchestrator/logs', { headers: orchHeaders() });
                 const data = await res.json();
                 const container = document.getElementById('monitoringLogsList');
                 if (!container) return;
@@ -2469,7 +2646,7 @@
         
         async function loadOrchestratorStatus() {
             try {
-                const res = await fetch('/api/orchestrator/status');
+                const res = await fetch('/api/orchestrator/status', { headers: orchHeaders() });
                 const data = await res.json();
                 const container = document.getElementById('toolsList');
                 if (!container) return;
@@ -2491,8 +2668,18 @@
             }
         }
         
-        function clearOrchestratorConsole() {
+        async function clearOrchestratorConsole() {
             document.getElementById('orchestratorConsole').innerHTML = `<div class="text-slate-500 italic">Очищено. Ожидание ввода...</div>`;
+            // Clear server-side conversation and start new session
+            await fetch('/api/orchestrator/session/clear', {
+                method: 'POST',
+                headers: orchHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({
+                    user_id: document.getElementById('orchUserId').value.trim() || 'anonymous',
+                    session_id: orchSessionId
+                })
+            });
+            orchSessionId = 'orch_' + Date.now().toString(36);
         }
         
         async function runOrchestratorTask() {
@@ -2505,58 +2692,109 @@
             btn.innerHTML = `<svg class="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Выполнение...`;
             
             const consoleEl = document.getElementById('orchestratorConsole');
-            consoleEl.innerHTML = `<div class="text-emerald-400 font-bold">[Агент] Запуск задачи: ${escapeHTML(promptText)}...</div>`;
-            
+
+            // Show user message immediately
+            const userMsg = document.createElement('div');
+            userMsg.className = 'text-blue-400 font-bold';
+            userMsg.textContent = `> ${promptText}`;
+            consoleEl.appendChild(userMsg);
+
+            const progressDiv = document.createElement('div');
+            progressDiv.id = 'orchProgress';
+            progressDiv.className = 'text-slate-500 text-[10px] mt-1 font-mono';
+            consoleEl.appendChild(progressDiv);
+
+            const progressEl = document.getElementById('orchProgress');
+            const startTime = Date.now();
+            const progressTimer = setInterval(() => {
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                const steps = [];
+                if (elapsed > 1) steps.push('Классификация запроса');
+                if (elapsed > 4) steps.push('Генерация ответа');
+                if (elapsed > 10) steps.push('Обработка результата');
+                progressEl.textContent = `${elapsed}с — ${steps[steps.length - 1] || 'Инициализация...'}`;
+            }, 500);
+
             try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 120000);
                 const response = await fetch('/api/orchestrator/run', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: orchHeaders({ 'Content-Type': 'application/json' }),
                     body: JSON.stringify({
                         prompt: promptText,
+                        user_id: document.getElementById('orchUserId').value.trim() || 'anonymous',
+                        session_id: orchSessionId,
                         skill_id: document.getElementById('selectedSkillSelect').value,
                         max_retries: parseInt(document.getElementById('maxRetriesInput').value) || 3
-                    })
+                    }),
+                    signal: controller.signal
                 });
-                
+                clearTimeout(timeoutId);
+                clearInterval(progressTimer);
+
                 const data = await response.json();
                 btn.disabled = false;
                 btn.innerHTML = `Запустить <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>`;
-                
-                consoleEl.innerHTML = '';
-                if (data.steps && data.steps.length > 0) {
-                    data.steps.forEach(step => {
-                        const div = document.createElement('div');
-                        if (step.includes('[Ошибка') || step.includes('[Error')) {
-                            div.className = 'text-red-400 font-bold';
-                        } else if (step.includes('[Инструмент') && step.includes('[Вывод]')) {
-                            div.className = 'text-teal-300 mt-2 pl-4 border-l-2 border-teal-500/50 bg-slate-900/20 py-1.5 rounded-r-xl';
-                        } else if (step.includes('[Агент]') && step.includes('Итоговый ответ:')) {
-                            div.className = 'text-emerald-400 font-bold mt-4 p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl';
-                        } else if (step.includes('--->')) {
-                            div.className = 'text-yellow-400/90 pl-6 font-semibold';
-                        } else {
-                            div.className = 'text-slate-350';
-                        }
-                        div.innerHTML = escapeHTML(step).replace(/\n/g, '<br>');
-                        consoleEl.appendChild(div);
-                    });
-                }
-                
+
+                // Build debug line
+                const debugParts = [];
+                if (data.provider) debugParts.push(`Provider: ${data.provider}`);
+                if (data.scope) debugParts.push(`Scope: ${data.scope}`);
+                if (data.duration_ms) debugParts.push(`${data.duration_ms}ms`);
+
                 if (data.ok) {
+                    progressEl.remove();
+                    // Display full conversation history
+                    const history = data.history || [];
+                    // Keep existing messages, add new ones
+                    const existingCount = consoleEl.querySelectorAll('[data-orch-msg]').length;
+                    for (let i = existingCount; i < history.length; i++) {
+                        const msg = history[i];
+                        const div = document.createElement('div');
+                        div.setAttribute('data-orch-msg', '1');
+                        if (msg.role === 'user') {
+                            div.className = 'text-blue-400 font-bold';
+                            div.textContent = `> ${msg.content}`;
+                        } else {
+                            div.className = 'text-emerald-400 font-bold mt-2 p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl whitespace-pre-wrap';
+                            div.textContent = msg.content;
+                        }
+                        consoleEl.appendChild(div);
+                    }
+                    // Debug info
+                    if (debugParts.length) {
+                        const dbg = document.createElement('div');
+                        dbg.className = 'text-slate-500 text-[10px] mt-2 mb-1 font-mono';
+                        dbg.textContent = debugParts.join(' | ');
+                        consoleEl.appendChild(dbg);
+                    }
                     input.value = '';
                     loadWebMonitorLogs();
                 } else {
+                    progressEl.remove();
+                    if (debugParts.length) {
+                        const dbg = document.createElement('div');
+                        dbg.className = 'text-slate-500 text-[10px] mb-2 font-mono';
+                        dbg.textContent = debugParts.join(' | ');
+                        consoleEl.appendChild(dbg);
+                    }
                     const div = document.createElement('div');
                     div.className = 'text-red-400 font-bold mt-3 p-3 bg-red-500/5 border border-red-500/20 rounded-xl';
                     div.textContent = `[Сбой выполнения]: ${data.error}`;
                     consoleEl.appendChild(div);
                 }
             } catch (err) {
+                clearInterval(progressTimer);
                 btn.disabled = false;
                 btn.innerHTML = `Запустить <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>`;
                 const div = document.createElement('div');
                 div.className = 'text-red-400 font-bold mt-3 p-3 bg-red-500/5 border border-red-500/20 rounded-xl';
-                div.textContent = `[Сбой запроса]: ${err.message}`;
+                if (err.name === 'AbortError') {
+                    div.textContent = `[Таймаут]: Запрос превысил 120 сек. Проверьте, запущен ли LLM-сервер.`;
+                } else {
+                    div.textContent = `[Сбой запроса]: ${err.message}`;
+                }
                 consoleEl.appendChild(div);
             }
             consoleEl.scrollTop = consoleEl.scrollHeight;

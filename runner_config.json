@@ -5,9 +5,11 @@
     "C:\\llama.cpp\\models",
     "F:\\Models"
   ],
-  "custom_models": [],
+  "custom_models": [
+    "F:\\Models\\NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf"
+  ],
   "server_exe": "C:\\llama.cpp\\llama-server.exe",
-  "selected_model": "F:\\Models\\lmstudio-community\\gemma-4-12B-it-QAT-GGUF\\mmproj-gemma-4-12B-it-QAT-BF16.gguf",
+  "selected_model": "F:\\Models\\lmstudio-community\\gemma-4-12B-it-QAT-GGUF\\gemma-4-12B-it-QAT-Q4_0.gguf",
   "profiles": {},
   "settings": {
     "host": "127.0.0.1",
@@ -18,8 +20,8 @@
     "batch_size": 2048,
     "ubatch_size": 512,
     "flash_attn": "auto",
-    "cache_type_k": "f16",
-    "cache_type_v": "f16",
+    "cache_type_k": "q4_0",
+    "cache_type_v": "q4_0",
     "temperature": 0.7,
     "top_k": 40,
     "top_p": 0.9,
@@ -39,5 +41,23 @@
     "extra_args": "",
     "mmproj": "",
     "orchestrator_api_key": "hermes_secret_api_key_2026"
+  },
+  "load_profile": "dual",
+  "model_slots": {
+    "primary": {
+      "model_path": "F:\\Models\\lmstudio-community\\gemma-4-12B-it-GGUF\\gemma-4-12B-it-Q6_K.gguf",
+      "ctx_size": 8192,
+      "gpu_layers": "auto"
+    },
+    "fast": {
+      "model_path": "F:\\Models\\NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf",
+      "ctx_size": 8192,
+      "gpu_layers": "auto"
+    },
+    "quality": {
+      "model_path": "F:\\Models\\lmstudio-community\\gemma-4-26B-A4B-it-QAT-GGUF\\gemma-4-26B-A4B-it-QAT-Q4_0.gguf",
+      "ctx_size": 8192,
+      "gpu_layers": "auto"
+    }
   }
 }

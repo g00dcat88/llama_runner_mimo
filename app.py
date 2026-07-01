@@ -30,8 +30,8 @@ DEFAULT_SETTINGS = {
     "batch_size": 2048,
     "ubatch_size": 512,
     "flash_attn": "auto",
-    "cache_type_k": "f16",
-    "cache_type_v": "f16",
+    "cache_type_k": "q4_0",
+    "cache_type_v": "q4_0",
     "temperature": 0.7,
     "top_k": 40,
     "top_p": 0.9,
@@ -71,6 +71,33 @@ PRESETS = {
     },
 }
 
+LOAD_PROFILES = {
+    "single": {
+        "name": "Одна модель",
+        "description": "Одна модель на порту 8080",
+        "slots": [
+            {"id": "primary", "port": 8080}
+        ]
+    },
+    "dual": {
+        "name": "Две модели (быстрая + качественная)",
+        "description": "Лёгкая на 8080, тяжёлая на 8081",
+        "slots": [
+            {"id": "fast", "port": 8080},
+            {"id": "quality", "port": 8081}
+        ]
+    },
+    "triple": {
+        "name": "Три модели",
+        "description": "Быстрая + средняя + тяжёлая",
+        "slots": [
+            {"id": "fast", "port": 8080},
+            {"id": "medium", "port": 8081},
+            {"id": "heavy", "port": 8082}
+        ]
+    }
+}
+
 
 @dataclass
 class AppConfig:
@@ -82,6 +109,8 @@ class AppConfig:
     selected_model: str = ""
     profiles: dict[str, dict] = field(default_factory=dict)
     settings: dict = field(default_factory=lambda: DEFAULT_SETTINGS.copy())
+    load_profile: str = "single"
+    model_slots: dict = field(default_factory=dict)
 
     @classmethod
     def load(cls) -> AppConfig:
@@ -98,6 +127,8 @@ class AppConfig:
             config.selected_model = data.get("selected_model", config.selected_model)
             config.profiles = data.get("profiles", {})
             config.settings.update(data.get("settings", {}))
+            config.load_profile = data.get("load_profile", "single")
+            config.model_slots = data.get("model_slots", {})
             return config
         except (OSError, json.JSONDecodeError):
             return cls()
@@ -282,6 +313,228 @@ class LlamaServer:
         self.logs.append(f"[{ts}] {text}")
 
 
+@dataclass
+class ModelSlot:
+    """Один слот модели в пуле."""
+    id: str
+    model_path: str = ""
+    port: int = 8080
+    ctx_size: int = 8192
+    gpu_layers: str = "auto"
+    process: subprocess.Popen | None = None
+    output_queue: queue.Queue = field(default_factory=queue.Queue)
+    logs: list[str] = field(default_factory=list)
+
+    def is_running(self) -> bool:
+        return self.process is not None and self.process.poll() is None
+
+    def _log(self, text: str) -> None:
+        ts = time.strftime("%H:%M:%S")
+        self.logs.append(f"[{ts}] {text}")
+
+
+class ModelPool:
+    """Пул запущенных моделей на разных портах."""
+
+    def __init__(self, config: AppConfig) -> None:
+        self.config = config
+        self.slots: dict[str, ModelSlot] = {}
+        self.last_used_slot: str | None = None
+        self._sync_slots()
+
+    def _sync_slots(self) -> None:
+        """Синхронизировать слоты из конфига."""
+        profile = LOAD_PROFILES.get(self.config.load_profile, LOAD_PROFILES["single"])
+        for slot_def in profile["slots"]:
+            sid = slot_def["id"]
+            if sid not in self.slots:
+                saved = self.config.model_slots.get(sid, {})
+                self.slots[sid] = ModelSlot(
+                    id=sid,
+                    model_path=saved.get("model_path", ""),
+                    port=slot_def["port"],
+                    ctx_size=saved.get("ctx_size", 8192),
+                    gpu_layers=saved.get("gpu_layers", "auto"),
+                )
+
+    def _build_command(self, slot: ModelSlot) -> list[str]:
+        s = self.config.settings
+        server = Path(self.config.server_exe)
+        model = Path(slot.model_path)
+        command = [
+            str(server), "-m", str(model),
+            "--host", s["host"], "--port", str(slot.port),
+            "-c", str(slot.ctx_size),
+            "-ngl", str(slot.gpu_layers),
+            "-t", str(s["threads"]),
+            "-b", str(s["batch_size"]),
+            "-ub", str(s["ubatch_size"]),
+            "-fa", (
+                "on" if s["flash_attn"] in (True, "true", "True", "on", "ON")
+                else ("off" if s["flash_attn"] in (False, "false", "False", "off", "OFF")
+                else "auto")
+            ),
+            "--cache-type-k", s["cache_type_k"],
+            "--cache-type-v", s["cache_type_v"],
+            "--reasoning", s["reasoning"],
+            "--reasoning-budget", str(s["reasoning_budget"]),
+        ]
+        if s["mlock"]:
+            command.append("--mlock")
+        if not s["mmap"]:
+            command.append("--no-mmap")
+        if not s["kv_offload"]:
+            command.append("--no-kv-offload")
+        if not s["webui"]:
+            command.append("--no-webui")
+        mmproj = s.get("mmproj", "").strip()
+        if mmproj:
+            command.extend(["--mmproj", mmproj])
+        extra = s.get("extra_args", "").strip()
+        if extra:
+            command.extend(extra.split())
+        return command
+
+    def start_slot(self, slot_id: str) -> dict:
+        if slot_id not in self.slots:
+            return {"ok": False, "error": f"Слот '{slot_id}' не найден"}
+        slot = self.slots[slot_id]
+        if slot.is_running():
+            return {"ok": False, "error": f"Слот '{slot_id}' уже запущен"}
+        if not slot.model_path:
+            return {"ok": False, "error": f"Слот '{slot_id}': модель не назначена"}
+        # Check port conflict with old singleton server
+        if slot.port == self.config.settings.get("port"):
+            try:
+                from app import server as _singleton
+                if _singleton.process and _singleton.process.poll() is None:
+                    return {"ok": False, "error": f"Порт {slot.port} занят старым сервером. Остановите его через 'Остановить' в основных настройках."}
+            except Exception:
+                pass
+        model = Path(slot.model_path)
+        server = Path(self.config.server_exe)
+        if not server.exists():
+            return {"ok": False, "error": "Не найден llama-server.exe"}
+        if not model.exists():
+            return {"ok": False, "error": f"Модель не найдена: {slot.model_path}"}
+        command = self._build_command(slot)
+        slot._log("Запуск: " + subprocess.list2cmdline(command))
+        try:
+            slot.process = subprocess.Popen(
+                command,
+                cwd=str(server.parent),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            )
+        except OSError as exc:
+            return {"ok": False, "error": str(exc)}
+        threading.Thread(target=self._read_output, args=(slot,), daemon=True).start()
+        return {"ok": True, "slot": slot_id, "port": slot.port}
+
+    def stop_slot(self, slot_id: str) -> dict:
+        if slot_id not in self.slots:
+            return {"ok": False, "error": f"Слот '{slot_id}' не найден"}
+        slot = self.slots[slot_id]
+        if not slot.is_running():
+            return {"ok": True, "message": f"Слот '{slot_id}' уже остановлен"}
+        slot._log("Остановка")
+        slot.process.terminate()
+        try:
+            slot.process.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            slot.process.kill()
+            slot.process.wait(timeout=3)
+        # Clean up: drain queue, clear logs, release process handle
+        while not slot.output_queue.empty():
+            try:
+                slot.output_queue.get_nowait()
+            except queue.Empty:
+                break
+        slot.logs.clear()
+        slot.process = None
+        return {"ok": True, "message": f"Слот '{slot_id}' остановлен"}
+
+    def start_all(self) -> dict:
+        results = {}
+        for sid in self.slots:
+            results[sid] = self.start_slot(sid)
+        return results
+
+    def stop_all(self) -> dict:
+        results = {}
+        for sid in self.slots:
+            results[sid] = self.stop_slot(sid)
+        return results
+
+    def status_all(self) -> dict:
+        result = {"last_used_slot": self.last_used_slot, "slots": {}}
+        for sid, slot in self.slots.items():
+            running = slot.is_running()
+            ready = running and self._health_check(slot.port)
+            result["slots"][sid] = {
+                "running": running,
+                "ready": ready,
+                "port": slot.port,
+                "model": slot.model_path,
+                "ctx_size": slot.ctx_size,
+                "gpu_layers": slot.gpu_layers,
+            }
+        return result
+
+    def get_slot_for_complexity(self, complexity: float) -> ModelSlot:
+        """Выбрать слот по сложности запроса (0.0-1.0)."""
+        available = {sid: s for sid, s in self.slots.items() if s.is_running()}
+        if not available:
+            return list(self.slots.values())[0] if self.slots else None
+        slot = None
+        if "fast" in available and "quality" in available:
+            if complexity < 0.5:
+                slot = available["fast"]
+            else:
+                slot = available["quality"]
+        elif "fast" in available and "medium" in available and "heavy" in available:
+            if complexity < 0.3:
+                slot = available["fast"]
+            elif complexity < 0.7:
+                slot = available["medium"]
+            else:
+                slot = available["heavy"]
+        else:
+            slot = list(available.values())[0]
+        if slot:
+            self.last_used_slot = slot.id
+        return slot
+
+    def _health_check(self, port: int) -> bool:
+        host = self.config.settings["host"]
+        try:
+            with urllib.request.urlopen(f"http://{host}:{port}/health", timeout=0.8) as resp:
+                return resp.status < 500
+        except (urllib.error.URLError, TimeoutError, OSError):
+            return False
+
+    def _read_output(self, slot: ModelSlot) -> None:
+        if not slot.process or not slot.process.stdout:
+            return
+        for line in slot.process.stdout:
+            slot.output_queue.put(line.rstrip())
+
+    def save_slot_config(self) -> None:
+        """Сохранить конфигурацию слотов в config."""
+        for sid, slot in self.slots.items():
+            self.config.model_slots[sid] = {
+                "model_path": slot.model_path,
+                "ctx_size": slot.ctx_size,
+                "gpu_layers": slot.gpu_layers,
+            }
+        self.config.load_profile = self.config.load_profile
+        self.config.save()
+
+
 def select_folder_via_ps() -> str:
     cmd = [
         "powershell", "-NoProfile", "-Command",
@@ -316,6 +569,7 @@ def select_file_via_ps() -> str:
 app = Flask(__name__)
 config = AppConfig.load()
 server = LlamaServer(config)
+pool = ModelPool(config)
 
 from orchestrator_api import orchestrator_bp
 app.register_blueprint(orchestrator_bp)
@@ -491,6 +745,9 @@ def api_get_config():
         "settings": config.settings,
         "profiles": config.profiles,
         "presets": PRESETS,
+        "load_profile": config.load_profile,
+        "model_slots": config.model_slots,
+        "load_profiles": LOAD_PROFILES,
     })
 
 
@@ -556,6 +813,79 @@ def api_server_status():
 @app.route("/api/server/logs")
 def api_server_logs():
     return jsonify({"logs": server.get_logs(), "all_logs": server.logs[-200:]})
+
+
+@app.route("/api/pool/profiles", methods=["GET"])
+def api_pool_profiles():
+    profiles = {}
+    for k, v in LOAD_PROFILES.items():
+        profiles[k] = {"name": v["name"], "description": v["description"],
+                        "slots": [{"id": s["id"], "port": s["port"]} for s in v["slots"]]}
+    return jsonify({"profiles": profiles, "current": config.load_profile})
+
+
+@app.route("/api/pool/profile", methods=["POST"])
+def api_pool_set_profile():
+    data = request.get_json() or {}
+    profile_id = data.get("profile", "single")
+    if profile_id not in LOAD_PROFILES:
+        return jsonify({"ok": False, "error": f"Профиль '{profile_id}' не найден"}), 400
+    config.load_profile = profile_id
+    pool._sync_slots()
+    config.save()
+    return jsonify({"ok": True, "profile": profile_id, "slots": list(pool.slots.keys())})
+
+
+@app.route("/api/pool/status", methods=["GET"])
+def api_pool_status():
+    return jsonify(pool.status_all())
+
+
+@app.route("/api/pool/start", methods=["POST"])
+def api_pool_start_all():
+    results = pool.start_all()
+    return jsonify(results)
+
+
+@app.route("/api/pool/stop", methods=["POST"])
+def api_pool_stop_all():
+    results = pool.stop_all()
+    return jsonify(results)
+
+
+@app.route("/api/pool/slot/start", methods=["POST"])
+def api_pool_slot_start():
+    data = request.get_json() or {}
+    slot_id = data.get("slot_id")
+    if not slot_id:
+        return jsonify({"ok": False, "error": "slot_id required"}), 400
+    return jsonify(pool.start_slot(slot_id))
+
+
+@app.route("/api/pool/slot/stop", methods=["POST"])
+def api_pool_slot_stop():
+    data = request.get_json() or {}
+    slot_id = data.get("slot_id")
+    if not slot_id:
+        return jsonify({"ok": False, "error": "slot_id required"}), 400
+    return jsonify(pool.stop_slot(slot_id))
+
+
+@app.route("/api/pool/slot/assign", methods=["POST"])
+def api_pool_slot_assign():
+    data = request.get_json() or {}
+    slot_id = data.get("slot_id")
+    model_path = data.get("model_path", "")
+    if not slot_id or slot_id not in pool.slots:
+        return jsonify({"ok": False, "error": f"Слот '{slot_id}' не найден"}), 400
+    if not model_path or not Path(model_path).exists():
+        return jsonify({"ok": False, "error": f"Модель не найдена: {model_path}"}), 400
+    slot = pool.slots[slot_id]
+    slot.model_path = model_path
+    slot.ctx_size = data.get("ctx_size", slot.ctx_size)
+    slot.gpu_layers = data.get("gpu_layers", slot.gpu_layers)
+    pool.save_slot_config()
+    return jsonify({"ok": True, "slot": slot_id, "model": model_path, "port": slot.port})
 
 
 @app.route("/api/chat", methods=["POST"])

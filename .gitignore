@@ -3,3 +3,7 @@ __pycache__/
 *.pyo
 .env
 chats/
+*.db
+*.db-shm
+*.db-wal
+.mimocode/
