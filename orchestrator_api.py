@@ -1,10 +1,11 @@
 import sys
 import json
 import os
+import time
 import urllib.request
 import urllib.error
 from pathlib import Path
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, g
 
 
 def is_server_online(url: str) -> bool:
@@ -23,7 +24,7 @@ if str(ORCHESTRATOR_DIR) not in sys.path:
 from gateway import BaseLLM, create_llm_from_config
 from providers import LlamaServerLLM, MockLLM, OpenAICompatibleLLM, AnthropicLLM, PROVIDER_TYPES
 from tools import Tool, ToolRegistry, PythonSandbox, WebMonitorTool, ERPIntegrationTools
-from skills import SkillsManager
+from skills import SkillsManager  # noqa: F811
 from config import Config, ProviderConfig, RouterConfig
 from router import RouterLLM, classify_complexity
 from main import run_agentic_loop
@@ -38,11 +39,39 @@ from self_learning import SelfLearner
 from guardrails import InputGuardrails, OutputGuardrails
 from token_manager import TokenManager
 
+# User profiles, verification, and philosophy
+from user_profiles import UserProfileManager
+from verification import VerificationEngine
+from philosophy import AgentPhilosophy
+
+# Multi-client support
+from client_registry import ClientRegistry, ensure_default_clients
+from client_tools import create_client_tool_registry
+
+# File analysis tools
+from file_tools import FileTools
+
 orchestrator_bp = Blueprint("orchestrator", __name__)
 
 # Persistent session storage and self-learning
 _session_store = SessionStore(APP_DIR / "orchestrator_sessions.db")
 _learner = SelfLearner(_session_store)
+
+# User profiles
+_user_profiles = UserProfileManager(APP_DIR / "user_profiles")
+
+# Verification engine
+_verifier = VerificationEngine()
+
+# Agent philosophy
+_philosophy = AgentPhilosophy(APP_DIR / "philosophy.md")
+
+# Multi-client registry
+_client_registry = ClientRegistry(APP_DIR / "clients")
+ensure_default_clients(_client_registry)
+
+# File tools
+_file_tools = FileTools(APP_DIR / "uploads")
 
 
 
@@ -53,8 +82,25 @@ def check_api_key():
         return
     if request.remote_addr in ("127.0.0.1", "::1"):
         return
-    from app import config as runner_config
-    expected_key = runner_config.settings.get("orchestrator_api_key")
+
+    # Multi-client mode: check X-Client-ID + X-Client-API-Key
+    client_id = request.headers.get("X-Client-ID")
+    client_api_key = request.headers.get("X-Client-API-Key")
+    if client_id and client_api_key:
+        client = _client_registry.get(client_id)
+        if not client or not client.enabled:
+            return jsonify({"ok": False, "error": "Client not found or disabled"}), 401
+        if client.api_key != client_api_key:
+            return jsonify({"ok": False, "error": "Invalid client API key"}), 401
+        # Store client in request context for later use
+        g.active_client = client
+        return
+
+    # Legacy mode: check global API key
+    expected_key = os.environ.get("ORCHESTRATOR_API_KEY")
+    if not expected_key:
+        from app import config as runner_config
+        expected_key = runner_config.settings.get("orchestrator_api_key")
     if not expected_key:
         return
     api_key = request.headers.get("X-Orchestrator-API-Key")
@@ -107,7 +153,6 @@ web_monitor_tool = Tool(
 registry.register(web_monitor_tool)
 
 # Register ERP Integration tools
-from tools import ERPIntegrationTools
 erp_tools = ERPIntegrationTools()
 
 registry.register(Tool(
@@ -255,6 +300,79 @@ registry.register(Tool(
     func=erp_tools.search_knowledge_base
 ))
 
+# ── File Analysis Tools ────────────────────────────────────────────
+
+registry.register(Tool(
+    name="read_file",
+    description="Читает содержимое текстового файла (код, TXT, MD, JSON и т.д.). Используй для анализа загруженных файлов.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Путь к файлу (относительно uploads/ или абсолютный)."
+            }
+        },
+        "required": ["path"]
+    },
+    func=_file_tools.read_file,
+    category="files"
+))
+
+registry.register(Tool(
+    name="analyze_image",
+    description="Анализирует изображение через vision-модель (mmproj). Описывает содержимое, читает текст, распознаёт объекты.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Путь к изображению (PNG, JPG, WEBP и т.д.)."
+            },
+            "question": {
+                "type": "string",
+                "description": "Вопрос по изображению (по умолчанию: 'Опиши что изображено')."
+            }
+        },
+        "required": ["path"]
+    },
+    func=_file_tools.analyze_image,
+    category="files"
+))
+
+registry.register(Tool(
+    name="list_files",
+    description="Показывает список файлов в директории uploads/ или указанной папке.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "directory": {
+                "type": "string",
+                "description": "Путь к директории (пусто = uploads/)."
+            }
+        }
+    },
+    func=_file_tools.list_files,
+    category="files"
+))
+
+registry.register(Tool(
+    name="get_file_info",
+    description="Получает метаданные файла: размер, тип, расширение, доступные операции.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Путь к файлу."
+            }
+        },
+        "required": ["path"]
+    },
+    func=_file_tools.get_file_info,
+    category="files"
+))
+
 # Skills manager
 skills_dir = ORCHESTRATOR_DIR / "skills"
 skills_manager = SkillsManager(skills_dir)
@@ -339,7 +457,6 @@ def test_provider(name):
             base_url=provider_cfg.base_url,
         )
 
-        import time
         start = time.time()
         result = provider.generate(prompt="Hello", max_tokens=10)
         duration = time.time() - start
@@ -458,6 +575,167 @@ def learning_feedback():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# ── User Profile endpoints ─────────────────────────────────────────
+
+@orchestrator_bp.route("/api/orchestrator/profile", methods=["GET"])
+def get_user_profile():
+    user_id = request.args.get("user_id", "anonymous")
+    profile = _user_profiles.get_or_create(user_id)
+    return jsonify({
+        "user_id": profile.user_id,
+        "display_name": profile.display_name,
+        "role": profile.role,
+        "department": profile.department,
+        "rules": profile.rules,
+        "preferences": profile.preferences,
+        "patterns": profile.patterns,
+        "onboarded": profile.onboarded,
+        "query_count": profile.query_count,
+        "context": _user_profiles.get_system_context(user_id),
+    })
+
+@orchestrator_bp.route("/api/orchestrator/profile", methods=["POST"])
+def update_user_profile():
+    data = request.get_json() or {}
+    user_id = data.get("user_id", "anonymous")
+    profile = _user_profiles.get_or_create(user_id)
+    if "display_name" in data:
+        profile.display_name = data["display_name"]
+    if "role" in data:
+        profile.role = data["role"]
+    if "department" in data:
+        profile.department = data["department"]
+    if "rules" in data:
+        profile.rules = data["rules"]
+    if "preferences" in data:
+        profile.preferences.update(data["preferences"])
+    if data.get("complete_onboarding"):
+        profile.onboarded = True
+    _user_profiles.save(profile)
+    return jsonify({"ok": True})
+
+@orchestrator_bp.route("/api/orchestrator/profile/onboard", methods=["POST"])
+def complete_onboarding():
+    data = request.get_json() or {}
+    user_id = data.get("user_id", "anonymous")
+    info = {
+        "name": data.get("name", ""),
+        "role": data.get("role", ""),
+        "department": data.get("department", ""),
+        "rules": data.get("rules", []),
+        "preferences": data.get("preferences", {}),
+    }
+    _user_profiles.complete_onboarding(user_id, info)
+    return jsonify({"ok": True})
+
+# ── Verification endpoints ─────────────────────────────────────────
+
+@orchestrator_bp.route("/api/orchestrator/verification/stats", methods=["GET"])
+def verification_stats():
+    return jsonify(_verifier.get_stats())
+
+# ── Philosophy endpoints ───────────────────────────────────────────
+
+@orchestrator_bp.route("/api/orchestrator/philosophy", methods=["GET"])
+def get_philosophy():
+    return jsonify({"content": _philosophy.get()})
+
+@orchestrator_bp.route("/api/orchestrator/philosophy", methods=["POST"])
+def update_philosophy():
+    data = request.get_json() or {}
+    content = data.get("content", "")
+    if content:
+        _philosophy.path.write_text(content, encoding="utf-8")
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "content required"}), 400
+
+# ── Client Management endpoints ────────────────────────────────────
+
+@orchestrator_bp.route("/api/clients", methods=["GET"])
+def list_clients():
+    clients = _client_registry.list_all()
+    return jsonify({
+        "clients": [
+            {
+                "client_id": c.client_id,
+                "name": c.name,
+                "enabled": c.enabled,
+                "tools_count": len(c.tools),
+                "skills_count": len(c.skills),
+                "request_count": c.request_count,
+                "last_seen": c.last_seen,
+                "has_api_key": bool(c.api_key),
+            }
+            for c in clients
+        ]
+    })
+
+@orchestrator_bp.route("/api/clients", methods=["POST"])
+def create_client():
+    from client_registry import ClientConfig
+    data = request.get_json() or {}
+    client_id = data.get("client_id", "").strip()
+    name = data.get("name", "").strip()
+    api_key = data.get("api_key", "").strip()
+    if not client_id or not name or not api_key:
+        return jsonify({"ok": False, "error": "client_id, name, api_key required"}), 400
+    if _client_registry.get(client_id):
+        return jsonify({"ok": False, "error": f"Client '{client_id}' already exists"}), 409
+    client = ClientConfig(
+        client_id=client_id,
+        name=name,
+        api_key=api_key,
+        system_prompt=data.get("system_prompt", ""),
+        rate_limit=data.get("rate_limit", 10),
+    )
+    _client_registry.create(client)
+    return jsonify({"ok": True, "client": client.to_dict()})
+
+@orchestrator_bp.route("/api/clients/<client_id>", methods=["GET"])
+def get_client(client_id):
+    client = _client_registry.get(client_id)
+    if not client:
+        return jsonify({"ok": False, "error": "Client not found"}), 404
+    return jsonify({"ok": True, "client": client.to_dict()})
+
+@orchestrator_bp.route("/api/clients/<client_id>", methods=["PUT"])
+def update_client(client_id):
+    data = request.get_json() or {}
+    client = _client_registry.update(client_id, data)
+    if not client:
+        return jsonify({"ok": False, "error": "Client not found"}), 404
+    return jsonify({"ok": True, "client": client.to_dict()})
+
+@orchestrator_bp.route("/api/clients/<client_id>", methods=["DELETE"])
+def delete_client(client_id):
+    if client_id == "erp":
+        return jsonify({"ok": False, "error": "Cannot delete default ERP client"}), 400
+    if _client_registry.delete(client_id):
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "Client not found"}), 404
+
+@orchestrator_bp.route("/api/clients/<client_id>/tools", methods=["GET"])
+def get_client_tools(client_id):
+    client = _client_registry.get(client_id)
+    if not client:
+        return jsonify({"ok": False, "error": "Client not found"}), 404
+    return jsonify({"ok": True, "tools": client.tools})
+
+@orchestrator_bp.route("/api/clients/<client_id>/tools", methods=["POST"])
+def add_client_tool(client_id):
+    data = request.get_json() or {}
+    if not data.get("name"):
+        return jsonify({"ok": False, "error": "Tool name required"}), 400
+    if _client_registry.add_tool(client_id, data):
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "Client not found or tool already exists"}), 400
+
+@orchestrator_bp.route("/api/clients/<client_id>/tools/<tool_name>", methods=["DELETE"])
+def remove_client_tool(client_id, tool_name):
+    if _client_registry.remove_tool(client_id, tool_name):
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "Client or tool not found"}), 404
+
 @orchestrator_bp.route("/api/orchestrator/session/clear", methods=["POST"])
 def clear_session():
     data = request.get_json() or {}
@@ -493,7 +771,25 @@ def run_orchestrator():
         if not prompt:
             return jsonify({"ok": False, "error": "Промпт пуст"}), 400
 
-        # Pool-aware routing: use complexity to select the right model slot
+        # ── User profile: load or create ──────────────────────────────
+        user_profile = _user_profiles.get_or_create(user_id)
+        is_new_user = not user_profile.onboarded
+
+        # ── Client detection ──────────────────────────────────────────
+        active_client = getattr(g, 'active_client', None)
+        client_registry_to_use = registry  # fallback to default ERP registry
+        client_system_prompt = ""
+
+        if active_client:
+            # Multi-client mode: create isolated tool registry for this client
+            client_registry_to_use = create_client_tool_registry(
+                active_client, erp_tool_registry=registry,
+                sandbox=sandbox, web_monitor=web_monitor,
+            )
+            client_system_prompt = active_client.system_prompt
+            _client_registry.record_request(active_client.client_id)
+
+        # ── Pool-aware routing ────────────────────────────────────────
         try:
             from app import pool
             from router import classify_complexity
@@ -512,7 +808,7 @@ def run_orchestrator():
             llm = create_llm_from_config(config)
             provider_name = getattr(llm, 'provider', 'local')
 
-        # Initialize all required dependencies
+        # ── Initialize dependencies ───────────────────────────────────
         project_dir = ORCHESTRATOR_DIR
         cache = ResponseCache(str(project_dir / "cache.db"))
         rate_limiter = DualRateLimiter(llm_rate=5, llm_burst=10)
@@ -526,7 +822,13 @@ def run_orchestrator():
         if knowledge_dir.exists():
             rag_engine.index_directory(knowledge_dir)
 
-        # Load conversation history from persistent store
+        # ── Inject user profile + philosophy + client context ──────────
+        user_context = _user_profiles.get_system_context(user_id)
+        philosophy_text = _philosophy.get_compact()
+        client_context = f"\n\n## Клиент: {active_client.name}\n{client_system_prompt}" if active_client and client_system_prompt else ""
+        enriched_prompt = f"{user_context}\n\n{philosophy_text}{client_context}\n\n---\n\nЗапрос пользователя:\n{prompt}"
+
+        # ── Load conversation history ─────────────────────────────────
         history = _session_store.get_history(user_id, session_id, limit=config.conversation_max_messages)
         conversation = ConversationBuffer(max_messages=config.conversation_max_messages, user_id=user_id)
         for msg in history:
@@ -537,20 +839,19 @@ def run_orchestrator():
 
         dispatcher = QueryDispatcher(llm)
 
-        # Disable self-critique by default — it adds an extra LLM call
+        # Disable self-critique by default
         config.self_critique_enabled = data.get("self_critique", False)
 
-        # Skill_id from ERP frontend takes priority over dispatcher scope
         skill_id = data.get("skill_id")
         skills = skills_manager.list_skills()
         if skill_id and skill_id in skills:
-            # Override dispatcher scope-based prompt with skill system_prompt
-            config.self_critique_enabled = False  # skip extra LLM call for module agents
+            config.self_critique_enabled = False
 
+        # ── Run agentic loop ──────────────────────────────────────────
         result = run_agentic_loop(
             llm=llm,
-            registry=registry,
-            user_prompt=prompt,
+            registry=client_registry_to_use,
+            user_prompt=enriched_prompt,
             dispatcher=dispatcher,
             conversation=conversation,
             rag_engine=rag_engine,
@@ -566,7 +867,31 @@ def run_orchestrator():
             skills_manager=skills_manager,
         )
 
-        # Save conversation to persistent store
+        # ── Verification: check tool call results ─────────────────────
+        tool_calls = result.get("tool_calls", [])
+        verification_results = []
+        for tc in tool_calls:
+            tool_name = tc.get("name", "")
+            tool_params = tc.get("parameters", {})
+            tool_result = tc.get("result", {})
+            if _verifier.should_verify(tool_name):
+                report = _verifier.evaluate_result(tool_name, tool_params, tool_result)
+                _verifier.record(report)
+                verification_results.append({
+                    "tool": tool_name,
+                    "confidence": report.confidence,
+                    "result": report.result.value,
+                })
+                # Record success/failure for philosophy evolution
+                if report.result.value == "pass":
+                    _philosophy.record_success(tool_name, f"успешно: {tool_name}")
+                elif report.result.value == "fail":
+                    _philosophy.record_failure(tool_name, "верификация не пройдена", "требуется повтор")
+
+        # ── Record interaction for user profile ───────────────────────
+        _user_profiles.record_interaction(user_id, prompt, result.get("content", ""))
+
+        # ── Save conversation ─────────────────────────────────────────
         scope = result.get("scope", "general")
         tools_used = result.get("tool_calls", [])
         _session_store.save_message(user_id, session_id, "user", prompt, scope=scope)
@@ -575,8 +900,17 @@ def run_orchestrator():
                                         result.get("content", ""),
                                         scope=scope, tool_calls=tools_used)
 
-        # Get updated history
         history = _session_store.get_history(user_id, session_id, limit=config.conversation_max_messages)
+
+        # ── Detect onboarding completion ──────────────────────────────
+        is_onboarding = is_new_user and not _user_profiles.is_onboarded(user_id)
+        if not is_onboarding and is_new_user:
+            # If model answered the onboarding questions, try to extract info
+            _user_profiles.complete_onboarding(user_id, {
+                "name": user_id,
+                "role": "",
+                "department": "",
+            })
 
         return jsonify({
             "ok": result.get("ok", False),
@@ -586,6 +920,8 @@ def run_orchestrator():
             "scope": scope,
             "duration_ms": result.get("duration_ms", 0),
             "tools_used": tools_used,
+            "verification": verification_results,
+            "is_onboarding": is_onboarding,
             "history": history,
         })
     except Exception as e:

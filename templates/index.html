@@ -737,6 +737,9 @@
                 <button onclick="setSettingsTab('sampling')" id="tabBtnSampling" class="flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors">
                     Сэмплинг
                 </button>
+                <button onclick="setSettingsTab('gpu')" id="tabBtnGpu" class="flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors">
+                    GPU / CUDA
+                </button>
                 <button onclick="setSettingsTab('profiles')" id="tabBtnProfiles" class="flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors">
                     Профили
                 </button>
@@ -859,8 +862,9 @@
                         </div>
                         <div class="flex items-center gap-3">
                             <label class="w-36 text-sm text-slate-400 shrink-0 font-medium">Max Tokens (Ответ)</label>
-                            <input id="set_max_tokens" type="number" class="flex-1 bg-slate-900 border border-white/5 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:border-emerald-500/50 outline-none" placeholder="-1 (безлимитно)" title="-1 означает генерацию до EOS-токена">
+                            <input id="set_max_tokens" type="number" class="flex-1 bg-slate-900 border border-white/5 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:border-emerald-500/50 outline-none" placeholder="-1 (безлимитно)" title="-1 = генерация до EOS-токена (полный ответ). Положительное число = лимит токенов.">
                         </div>
+                        <p class="text-[10px] text-slate-500 ml-36">-1 = без ограничений (до конца ответа). Укажите число для ограничения длины.</p>
                     </div>
 
                     <div class="h-px bg-white/5 my-4"></div>
@@ -892,6 +896,49 @@
                     </div>
                 </div>
 
+                <!-- Section: GPU / CUDA -->
+                <div id="settingsTabGpu" class="space-y-5 hidden">
+                    <div class="p-3.5 bg-white/5 border border-white/5 rounded-xl space-y-3">
+                        <div class="flex items-center justify-between">
+                            <label class="block text-xs font-semibold text-slate-400">Обнаруженное GPU</label>
+                            <button onclick="loadGpuInfo()" class="text-[10px] text-emerald-400 hover:text-emerald-300 font-semibold transition-colors">Обновить</button>
+                        </div>
+                        <div id="gpuInfoContainer" class="space-y-2">
+                            <div class="text-xs text-slate-500">Загрузка информации о GPU...</div>
+                        </div>
+                    </div>
+
+                    <div class="p-3.5 bg-white/5 border border-white/5 rounded-xl space-y-3">
+                        <label class="block text-xs font-semibold text-slate-400">CUDA Runtime</label>
+                        <div id="cudaInfoContainer" class="space-y-2">
+                            <div class="text-xs text-slate-500">Проверка CUDA...</div>
+                        </div>
+                        <button onclick="updateCuda()" class="w-full py-2.5 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/20 rounded-xl text-blue-400 hover:text-blue-300 font-bold text-xs transition-all">
+                            Проверить и обновить CUDA DLLs
+                        </button>
+                    </div>
+
+                    <div class="p-3.5 bg-white/5 border border-white/5 rounded-xl space-y-3">
+                        <label class="block text-xs font-semibold text-slate-400">Рекомендуемые настройки для GPU</label>
+                        <div id="gpuRecommendContainer" class="space-y-2">
+                            <div class="text-xs text-slate-500">Загрузка рекомендаций...</div>
+                        </div>
+                        <button onclick="applyGpuRecommended()" class="w-full py-2.5 bg-emerald-600/20 hover:bg-emerald-600/40 border border-emerald-500/20 rounded-xl text-emerald-400 hover:text-emerald-300 font-bold text-xs transition-all">
+                            Применить рекомендованные настройки
+                        </button>
+                    </div>
+
+                    <div class="p-3.5 bg-white/5 border border-white/5 rounded-xl space-y-3">
+                        <label class="block text-xs font-semibold text-slate-400">llama.cpp</label>
+                        <div id="llamacppInfoContainer" class="space-y-2">
+                            <div class="text-xs text-slate-500">Проверка версии...</div>
+                        </div>
+                        <button onclick="updateLlamaCpp()" class="w-full py-2.5 bg-violet-600/20 hover:bg-violet-600/40 border border-violet-500/20 rounded-xl text-violet-400 hover:text-violet-300 font-bold text-xs transition-all">
+                            Обновить llama.cpp до последней версии
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Section: Models (Multi-model pool) -->
                 <div id="settingsTabModels" class="space-y-5 hidden">
                     <div class="p-3.5 bg-white/5 border border-white/5 rounded-xl space-y-3">
@@ -918,7 +965,10 @@
             <!-- Save settings footer button -->
             <div class="p-4 border-t border-white/5 bg-slate-900/50 flex gap-3 shrink-0">
                 <button onclick="saveAllSettings()" class="flex-1 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-955 font-bold rounded-xl transition-all shadow-md text-xs">
-                    Сохранить изменения
+                    Сохранить
+                </button>
+                <button onclick="saveAndRestart()" class="flex-1 py-3.5 bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white font-bold rounded-xl transition-all shadow-md text-xs">
+                    Применить и перезапустить
                 </button>
             </div>
             
@@ -928,6 +978,7 @@
     <!-- JS Logic -->
     <script>
         let cfg = {};
+        let poolAssignedModels = {};  // {"fast": "path/to/model", ...}
 
         function orchHeaders(extra) {
             const key = cfg?.settings?.orchestrator_api_key;
@@ -992,12 +1043,23 @@
                 cfg = await res.json();
                 populateSettings(cfg.settings);
                 updateProfiles(cfg.profiles);
+                await loadPoolAssignedModels();
                 await scanModels();
                 await updateScanDirsUI();
                 await loadChatsList();
                 pollStatus();
             } catch (err) {
                 console.error("Initialization error:", err);
+            }
+        }
+
+        async function loadPoolAssignedModels() {
+            try {
+                const res = await fetch('/api/pool/models');
+                const data = await res.json();
+                poolAssignedModels = data.assigned || {};
+            } catch (err) {
+                poolAssignedModels = {};
             }
         }
 
@@ -1037,19 +1099,21 @@
             settingsActiveTab = tab;
             const btnRuntime = document.getElementById('tabBtnRuntime');
             const btnSampling = document.getElementById('tabBtnSampling');
+            const btnGpu = document.getElementById('tabBtnGpu');
             const btnProfiles = document.getElementById('tabBtnProfiles');
             const btnModels = document.getElementById('tabBtnModels');
 
             const viewRuntime = document.getElementById('settingsTabRuntime');
             const viewSampling = document.getElementById('settingsTabSampling');
+            const viewGpu = document.getElementById('settingsTabGpu');
             const viewProfiles = document.getElementById('settingsTabProfiles');
             const viewModels = document.getElementById('settingsTabModels');
 
             // Reset
-            [btnRuntime, btnSampling, btnProfiles, btnModels].forEach(btn => {
+            [btnRuntime, btnSampling, btnGpu, btnProfiles, btnModels].forEach(btn => {
                 btn.className = "flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors";
             });
-            [viewRuntime, viewSampling, viewProfiles, viewModels].forEach(view => view.classList.add('hidden'));
+            [viewRuntime, viewSampling, viewGpu, viewProfiles, viewModels].forEach(view => view.classList.add('hidden'));
 
             if (tab === 'runtime') {
                 btnRuntime.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-400 transition-colors";
@@ -1057,6 +1121,11 @@
             } else if (tab === 'sampling') {
                 btnSampling.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-400 transition-colors";
                 viewSampling.classList.remove('hidden');
+            } else if (tab === 'gpu') {
+                btnGpu.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-400 transition-colors";
+                viewGpu.classList.remove('hidden');
+                loadGpuInfo();
+                loadLlamaCppInfo();
             } else if (tab === 'models') {
                 btnModels.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-400 transition-colors";
                 viewModels.classList.remove('hidden');
@@ -1282,7 +1351,7 @@
         function renderModelsList(models) {
             const list = document.getElementById('modelList');
             list.innerHTML = '';
-            
+
             if (models.length === 0) {
                 list.innerHTML = `
                     <div class="text-center py-10 px-4 text-xs text-slate-500 space-y-2">
@@ -1308,29 +1377,54 @@
                 }
 
                 // Parameters badge (e.g. 8B, 13B)
-                const paramsBadge = m.params 
-                    ? `<span class="px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/25 text-emerald-450 font-bold text-[9px] tracking-wide shadow-sm shadow-emerald-500/5 select-none">${m.params}</span>` 
+                const paramsBadge = m.params
+                    ? `<span class="px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/25 text-emerald-450 font-bold text-[9px] tracking-wide shadow-sm shadow-emerald-500/5 select-none">${m.params}</span>`
                     : '';
+
+                // Pool assignment badges
+                const poolBadges = [];
+                for (const [slotId, slotModel] of Object.entries(poolAssignedModels)) {
+                    if (slotModel === m.path) {
+                        const colorClass = slotId === 'fast' ? 'bg-blue-500/10 text-blue-400 border-blue-500/25'
+                            : slotId === 'quality' ? 'bg-violet-500/10 text-violet-400 border-violet-500/25'
+                            : slotId === 'heavy' ? 'bg-orange-500/10 text-orange-400 border-orange-500/25'
+                            : slotId === 'medium' ? 'bg-amber-500/10 text-amber-400 border-amber-500/25'
+                            : 'bg-slate-500/10 text-slate-400 border-slate-500/25';
+                        poolBadges.push(`<span class="px-1.5 py-0.5 rounded border font-bold text-[8px] tracking-wide select-none ${colorClass}">ПУЛ: ${slotId.toUpperCase()}</span>`);
+                    }
+                }
 
                 const div = document.createElement('div');
                 div.className = `p-3.5 rounded-xl cursor-pointer transition-all border group/card relative hover:-translate-y-0.5 ${
-                    isSelected 
-                        ? 'glass-card-active border-emerald-500/30' 
+                    isSelected
+                        ? 'glass-card-active border-emerald-500/30'
                         : 'bg-slate-900/40 hover:bg-slate-900/80 border-white/5 hover:border-white/10 shadow-sm'
                 }`;
-                
+
+                const isVisionActive = cfg.settings.mmproj && cfg.settings.mmproj === m.mmproj;
+                const visionIcon = m.has_vision
+                    ? `<button onclick="toggleVision('${m.path}', '${m.mmproj}', event)" class="p-1 rounded-lg transition-all ${isVisionActive ? 'text-violet-400 bg-violet-500/10' : 'text-slate-500 hover:text-violet-400 hover:bg-white/5'} opacity-0 group-hover/card:opacity-100 ${isVisionActive ? '!opacity-100' : ''}" title="${isVisionActive ? 'Vision активен' : 'Включить Vision (мультимодальность)'}">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                        </button>`
+                    : '';
+
                 div.innerHTML = `
                     <div class="flex justify-between items-start gap-2">
                         <div class="text-xs font-semibold ${isSelected ? 'text-emerald-450 font-bold' : 'text-slate-200'} truncate flex-1 group-hover/card:text-emerald-350 transition-colors" title="${m.name}">
                             ${m.name}
                         </div>
-                        <button onclick="openExplorer('${m.path}', event)" class="opacity-0 group-hover/card:opacity-100 p-1 text-slate-500 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all" title="Показать в проводнике">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5M5 19v-2m14 2a2 2 0 002-2v-3M2 22V2h20v20H2z"/></svg>
-                        </button>
+                        <div class="flex items-center gap-0.5 opacity-0 group-hover/card:opacity-100 transition-all">
+                            ${visionIcon}
+                            <button onclick="openExplorer('${m.path}', event)" class="p-1 text-slate-500 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all" title="Показать в проводнике">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5M5 19v-2m14 2a2 2 0 002-2v-3M2 22V2h20v20H2z"/></svg>
+                            </button>
+                        </div>
                     </div>
                     <div class="flex items-center justify-between mt-2.5 text-[10px] font-semibold text-slate-500">
-                        <div class="flex items-center gap-1.5">
+                        <div class="flex items-center gap-1.5 flex-wrap">
                             ${paramsBadge}
+                            ${isVisionActive ? '<span class="px-1.5 py-0.5 rounded border font-bold text-[8px] tracking-wide select-none bg-violet-500/10 text-violet-400 border-violet-500/25">VISION</span>' : ''}
+                            ${poolBadges.join('')}
                             <span class="px-1.5 py-0.5 rounded bg-white/5 border border-white/5 text-[9px] uppercase tracking-wide truncate max-w-[80px]" title="${m.folder}">${folderLabel}</span>
                             <span class="px-1.5 py-0.5 rounded bg-white/5 border border-white/5 font-mono">${m.size_gb} GB</span>
                         </div>
@@ -1349,10 +1443,45 @@
             sortAndRenderModels();
         }
 
+        async function toggleVision(modelPath, mmprojPath, event) {
+            event.stopPropagation();
+            const currentMmproj = cfg.settings.mmproj;
+            const enableVision = currentMmproj !== mmprojPath;
+
+            if (enableVision) {
+                if (!confirm(`Включить Vision для этой модели?\n\nmmproj: ${mmprojPath.split(/[/\\\\]/).pop()}\n\nСервер будет перезапущен.`)) return;
+            } else {
+                if (!confirm('Отключить Vision?\n\nСервер будет перезапущен.')) return;
+            }
+
+            try {
+                const res = await fetch('/api/models/vision', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        model_path: modelPath,
+                        mmproj: enableVision ? mmprojPath : ''
+                    })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    cfg.settings.mmproj = enableVision ? mmprojPath : '';
+                    cfg.selected_model = modelPath;
+                    addSystemMessage(enableVision ? 'Vision включен. Сервер перезапускается...' : 'Vision отключен. Сервер перезапускается...');
+                    document.getElementById('logsPanel').classList.remove('hidden');
+                    sortAndRenderModels();
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (err) {
+                alert('Ошибка: ' + err.message);
+            }
+        }
+
         async function selectModel(path, el, name) {
             cfg.selected_model = path;
             document.getElementById('selectedModelLabel').textContent = name;
-            
+
             sortAndRenderModels();
 
             await fetch('/api/config', { 
@@ -2043,15 +2172,43 @@
             const s = readSettings();
             cfg.settings = s;
             try {
-                await fetch('/api/config', { 
-                    method: 'POST', 
-                    headers: {'Content-Type':'application/json'}, 
-                    body: JSON.stringify({ settings: s }) 
+                await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ settings: s })
                 });
                 addSystemMessage('Настройки сохранены в конфигурации');
                 closeSettings();
             } catch (err) {
                 alert('Не удалось сохранить настройки: ' + err.message);
+            }
+        }
+
+        async function saveAndRestart() {
+            const s = readSettings();
+            cfg.settings = s;
+            try {
+                await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ settings: s })
+                });
+                addSystemMessage('Настройки сохранены, перезапуск сервера...');
+                closeSettings();
+                const res = await fetch('/api/server/restart', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ settings: s, selected_model: cfg.selected_model })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    addSystemMessage('Сервер перезапущен с новыми настройками');
+                    document.getElementById('logsPanel').classList.remove('hidden');
+                } else {
+                    addSystemMessage('Ошибка перезапуска: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (err) {
+                alert('Ошибка: ' + err.message);
             }
         }
 
@@ -2108,6 +2265,143 @@
             }
         }
 
+        // ── GPU / CUDA functions ───────────────────────────────────────
+
+        async function loadGpuInfo() {
+            try {
+                const res = await fetch('/api/gpu/info');
+                const data = await res.json();
+
+                // GPU info
+                const gpuContainer = document.getElementById('gpuInfoContainer');
+                if (data.gpus && data.gpus.length > 0) {
+                    gpuContainer.innerHTML = data.gpus.map(gpu => `
+                        <div class="p-3 rounded-xl bg-slate-900/60 border border-white/5 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold text-slate-200">${gpu.name}</span>
+                                <span class="px-1.5 py-0.5 rounded border text-[9px] font-bold ${gpu.is_p100 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'}">${gpu.arch} CC ${gpu.compute_cap}</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-[10px]">
+                                <div class="text-slate-500">VRAM: <span class="text-slate-300">${(gpu.memory_total_mb/1024).toFixed(1)} GB</span></div>
+                                <div class="text-slate-500">Свободно: <span class="text-slate-300">${(gpu.memory_free_mb/1024).toFixed(1)} GB</span></div>
+                                <div class="text-slate-500">Драйвер: <span class="text-slate-300">${gpu.driver_version}</span></div>
+                                <div class="text-slate-500">Flash Attn: <span class="text-slate-300">${gpu.flash_attn_supported ? 'Да' : 'Нет'}</span></div>
+                            </div>
+                            ${gpu.is_p100 ? '<div class="text-[10px] text-amber-400 font-semibold">⚠ NVIDIA P100 обнаружен — Flash Attention отключен, рекомендуется ctx ≤ 16384</div>' : ''}
+                        </div>
+                    `).join('');
+                } else {
+                    gpuContainer.innerHTML = '<div class="text-xs text-red-400">GPU не обнаружен. Проверьте установку NVIDIA драйверов.</div>';
+                }
+
+                // CUDA info
+                const cudaContainer = document.getElementById('cudaInfoContainer');
+                const cuda = data.cuda || {};
+                const cudaVer = cuda.cuda_runtime_version || '—';
+                const dllsOk = cuda.dlls_ok;
+                cudaContainer.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-slate-400">Runtime:</span>
+                        <span class="text-xs font-semibold ${dllsOk ? 'text-emerald-400' : 'text-amber-400'}">v${cudaVer} ${dllsOk ? '✓' : '⚠'}</span>
+                    </div>
+                    ${cuda.missing_dlls && cuda.missing_dlls.length > 0 ? `
+                        <div class="text-[10px] text-amber-400">Отсутствуют: ${cuda.missing_dlls.join(', ')}</div>
+                    ` : ''}
+                    ${!cuda.installed && !dllsOk ? '<div class="text-[10px] text-amber-400">CUDA Toolkit не найден в стандартном пути. DLLs могут отсутствовать.</div>' : ''}
+                    ${cuda.installed && !dllsOk ? '<div class="text-[10px] text-amber-400">CUDA Toolkit найден, но DLLs неполные. Нажмите «Обновить».</div>' : ''}
+                `;
+
+                // Recommendations
+                const recContainer = document.getElementById('gpuRecommendContainer');
+                const rec = data.recommended || {};
+                if (Object.keys(rec).length > 0) {
+                    recContainer.innerHTML = `
+                        <div class="grid grid-cols-2 gap-2 text-[10px]">
+                            <div class="text-slate-500">Flash Attn: <span class="text-slate-300">${rec.flash_attn || 'auto'}</span></div>
+                            <div class="text-slate-500">Контекст: <span class="text-slate-300">${rec.ctx_size || '—'}</span></div>
+                            <div class="text-slate-500">GPU слои: <span class="text-slate-300">${rec.gpu_layers || 'auto'}</span></div>
+                            <div class="text-slate-500">KV Cache: <span class="text-slate-300">${rec.cache_type_k || 'q4_0'}</span></div>
+                        </div>
+                    `;
+                } else {
+                    recContainer.innerHTML = '<div class="text-xs text-slate-500">Нет рекомендаций (GPU не обнаружен)</div>';
+                }
+            } catch (err) {
+                console.error('GPU info error:', err);
+            }
+        }
+
+        async function updateCuda() {
+            try {
+                const res = await fetch('/api/cuda/update', { method: 'POST' });
+                const data = await res.json();
+                if (data.ok) {
+                    alert('✓ ' + data.message);
+                } else {
+                    alert('⚠ ' + data.message + '\n' + (data.errors || []).join('\n'));
+                }
+                loadGpuInfo();
+            } catch (err) {
+                alert('Ошибка: ' + err.message);
+            }
+        }
+
+        async function applyGpuRecommended() {
+            try {
+                const res = await fetch('/api/gpu/apply-recommended', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({gpu_index: 0}) });
+                const data = await res.json();
+                if (data.ok) {
+                    cfg.settings = {...cfg.settings, ...data.applied};
+                    populateSettings(cfg.settings);
+                    alert('Настройки применены: ' + data.gpu);
+                } else {
+                    alert(data.error || 'Ошибка');
+                }
+            } catch (err) {
+                alert('Ошибка: ' + err.message);
+            }
+        }
+
+        async function loadLlamaCppInfo() {
+            try {
+                const res = await fetch('/api/llamacpp/version');
+                const data = await res.json();
+                const container = document.getElementById('llamacppInfoContainer');
+                const current = data.current_version || 'неизвестна';
+                const latest = data.latest_version || 'неизвестна';
+                const needsUpdate = data.needs_update;
+                container.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-slate-400">Текущая версия:</span>
+                        <span class="text-xs font-semibold ${needsUpdate ? 'text-amber-400' : 'text-emerald-400'}">${current}</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-slate-400">Последняя версия:</span>
+                        <span class="text-xs font-semibold text-slate-300">${latest}</span>
+                    </div>
+                    ${needsUpdate ? '<div class="text-[10px] text-amber-400 font-semibold">Доступно обновление!</div>' : '<div class="text-[10px] text-emerald-400">Установлена последняя версия</div>'}
+                `;
+            } catch (err) {
+                console.error('LlamaCpp info error:', err);
+            }
+        }
+
+        async function updateLlamaCpp() {
+            if (!confirm('Обновить llama.cpp до последней версии? Текущие файлы будут заменены.')) return;
+            try {
+                const res = await fetch('/api/llamacpp/update', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
+                const data = await res.json();
+                if (data.ok) {
+                    alert('✓ Обновлено! Заменено файлов: ' + data.count + '\n' + data.extracted.join(', '));
+                    loadLlamaCppInfo();
+                } else {
+                    alert('⚠ Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (err) {
+                alert('Ошибка: ' + err.message);
+            }
+        }
+
         // ── Pool (Multi-model) functions ──────────────────────────────
 
         async function loadPoolUI() {
@@ -2153,6 +2447,7 @@
             const container = document.getElementById('poolSlotsContainer');
             container.innerHTML = '';
             try {
+                await loadPoolAssignedModels();
                 const status = await fetch('/api/pool/status').then(r => r.json());
                 const models = await fetch('/api/models').then(r => r.json());
                 const lastUsed = status.last_used_slot;
@@ -2208,8 +2503,11 @@
                     body: JSON.stringify({slot_id: slotId, model_path: modelPath, ctx_size: parseInt(document.getElementById('set_ctx_size').value) || 8192, gpu_layers: document.getElementById('set_gpu_layers').value || 'auto'})
                 });
                 const data = await res.json();
-                if (data.ok) renderPoolSlots();
-                else alert(data.error);
+                if (data.ok) {
+                    await loadPoolAssignedModels();
+                    renderPoolSlots();
+                    sortAndRenderModels();
+                } else alert(data.error);
             } catch (err) { alert(err.message); }
         }
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import queue
@@ -20,6 +21,295 @@ LLAMA_ROOT = APP_DIR.parent
 CONFIG_FILE = APP_DIR / "runner_config.json"
 CHATS_DIR = APP_DIR / "chats"
 CHATS_DIR.mkdir(exist_ok=True)
+
+# ── CUDA / GPU detection ─────────────────────────────────────────────
+
+# Known GPU architectures and their properties
+GPU_ARCH_INFO = {
+    # Compute capability -> arch name, flash_attn support, recommended defaults
+    "5.0": {"arch": "Maxwell", "flash_attn": False, "max_ctx": 8192},
+    "5.2": {"arch": "Maxwell", "flash_attn": False, "max_ctx": 8192},
+    "6.0": {"arch": "Pascal", "flash_attn": False, "max_ctx": 16384},  # P100
+    "6.1": {"arch": "Pascal", "flash_attn": False, "max_ctx": 16384},  # GTX 10xx
+    "7.0": {"arch": "Volta", "flash_attn": True, "max_ctx": 32768},    # V100
+    "7.5": {"arch": "Turing", "flash_attn": True, "max_ctx": 32768},   # RTX 20xx
+    "8.0": {"arch": "Ampere", "flash_attn": True, "max_ctx": 65536},   # A100
+    "8.6": {"arch": "Ampere", "flash_attn": True, "max_ctx": 65536},   # RTX 30xx
+    "8.9": {"arch": "Ada", "flash_attn": True, "max_ctx": 65536},      # RTX 40xx
+    "9.0": {"arch": "Hopper", "flash_attn": True, "max_ctx": 131072},  # H100
+    "10.0": {"arch": "Blackwell", "flash_attn": True, "max_ctx": 131072},  # RTX 50xx
+    "12.0": {"arch": "Blackwell", "flash_attn": True, "max_ctx": 131072},  # RTX 50xx (new numbering)
+}
+
+# CUDA runtime DLL names required by llama.cpp
+REQUIRED_CUDA_DLLS = [
+    "cublas64_{ver}.dll",
+    "cublasLt64_{ver}.dll",
+    "cudart64_{ver}.dll",
+]
+
+# Known CUDA download URLs (major version -> URL pattern)
+CUDA_RUNTIME_URLS = {
+    12: "https://github.com/nicehash/NiceHashQuickMiner/raw/main/cudart64_12.dll",
+    13: "https://github.com/nicehash/NiceHashQuickMiner/raw/main/cudart64_13.dll",
+}
+
+# llama.cpp release info
+LLAMA_CPP_REPO = "ggml-org/llama.cpp"
+LLAMA_CPP_RELEASE_URL = f"https://api.github.com/repos/{LLAMA_CPP_REPO}/releases/latest"
+LLAMA_CPP_ASSET_PATTERNS = {
+    "server": "llama-server",
+    "cli": "llama-cli",
+    "quantize": "llama-quantize",
+}
+
+
+def check_llama_cpp_version() -> dict:
+    """Check current and latest llama.cpp versions."""
+    info = {"current_version": None, "latest_version": None, "download_url": None, "needs_update": False}
+
+    # Check current version from server exe
+    server_exe = Path(config.server_exe) if config else None
+    if server_exe and server_exe.exists():
+        try:
+            result = subprocess.run(
+                [str(server_exe), "--version"],
+                capture_output=True, text=True, timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            )
+            output = result.stdout + result.stderr
+            ver_match = re.search(r"(?:version|build|build_info):\s*(b?\d+[-\w]*)", output, re.IGNORECASE)
+            if ver_match:
+                info["current_version"] = ver_match.group(1)
+        except Exception:
+            pass
+
+    # Check latest release from GitHub
+    try:
+        req = urllib.request.Request(LLAMA_CPP_RELEASE_URL, headers={"User-Agent": "LlamaRunner/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            info["latest_version"] = data.get("tag_name", "")
+            info["release_name"] = data.get("name", "")
+            info["release_date"] = data.get("published_at", "")
+
+            # Parse Windows download URLs from release body
+            body = data.get("body", "")
+            windows_assets = []
+
+            # Find all download links in the body
+            link_pattern = re.compile(r'\[([^\]]+)\]\((https://github\.com/[^\)]+\.zip)\)')
+            for match in link_pattern.finditer(body):
+                link_text = match.group(1)
+                link_url = match.group(2)
+                # Filter for Windows builds
+                if "win" in link_url.lower():
+                    windows_assets.append({
+                        "name": link_text,
+                        "url": link_url,
+                        "size": 0,
+                    })
+
+            info["windows_assets"] = windows_assets
+
+            # Also check assets array (some releases use it)
+            for asset in data.get("assets", []):
+                name = asset.get("name", "")
+                if "win" in name.lower() and name.endswith(".zip"):
+                    windows_assets.append({
+                        "name": name,
+                        "url": asset.get("browser_download_url", ""),
+                        "size": asset.get("size", 0),
+                    })
+
+            if info["current_version"] and info["latest_version"]:
+                info["needs_update"] = info["current_version"] != info["latest_version"]
+    except Exception as e:
+        info["error"] = str(e)
+
+    return info
+
+
+def download_llama_cpp_release(url: str, target_dir: str) -> dict:
+    """Download and extract llama.cpp release."""
+    target = Path(target_dir)
+    try:
+        # Download zip
+        req = urllib.request.Request(url, headers={"User-Agent": "LlamaRunner/1.0"})
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            zip_data = resp.read()
+
+        # Save to temp file
+        import zipfile, io, tempfile
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+            tmp.write(zip_data)
+            tmp_path = tmp.name
+
+        # Extract
+        with zipfile.ZipFile(tmp_path) as zf:
+            # Find exe files and extract to target
+            extracted = []
+            for name in zf.namelist():
+                if name.endswith(".exe") or name.endswith(".dll"):
+                    # Extract to target dir with just the filename
+                    filename = Path(name).name
+                    if filename:
+                        zf.extract(name, str(target))
+                        extracted.append(filename)
+
+        # Cleanup temp
+        os.unlink(tmp_path)
+
+        return {"ok": True, "extracted": extracted, "count": len(extracted)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def detect_gpu() -> list[dict]:
+    """Detect NVIDIA GPUs via nvidia-smi."""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi",
+             "--query-gpu=index,name,memory.total,memory.free,compute_cap,driver_version,pci.bus_id",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
+        if result.returncode != 0:
+            return []
+        gpus = []
+        for line in result.stdout.strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) < 7:
+                continue
+            compute_cap = parts[4]
+            arch_info = GPU_ARCH_INFO.get(compute_cap, {"arch": "Unknown", "flash_attn": "auto", "max_ctx": 8192})
+            gpus.append({
+                "index": int(parts[0]),
+                "name": parts[1],
+                "memory_total_mb": int(float(parts[2])),
+                "memory_free_mb": int(float(parts[3])),
+                "compute_cap": compute_cap,
+                "arch": arch_info["arch"],
+                "flash_attn_supported": arch_info["flash_attn"],
+                "recommended_max_ctx": arch_info["max_ctx"],
+                "driver_version": parts[5],
+                "pci_bus": parts[6],
+                "is_p100": "P100" in parts[1],
+            })
+        return gpus
+    except Exception:
+        return []
+
+
+def detect_cuda_version(llama_dir: str | None = None) -> dict:
+    """Detect installed CUDA toolkit version."""
+    info = {"installed": False, "version": None, "path": None, "dlls_ok": False, "missing_dlls": []}
+    check_dir = Path(llama_dir) if llama_dir else Path(config.llama_root) if config else LLAMA_ROOT
+    check_dir = Path(check_dir)
+
+    # Method 1: Check nvidia-smi for driver
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
+        if result.returncode == 0:
+            info["driver_version"] = result.stdout.strip().split("\n")[0].strip()
+    except Exception:
+        pass
+
+    # Method 2: Check CUDA toolkit in standard paths
+    cuda_base = Path(os.environ.get("CUDA_PATH", r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA"))
+    if cuda_base.exists():
+        versions = sorted([d.name for d in cuda_base.iterdir() if d.is_dir() and d.name.startswith("v")], reverse=True)
+        if versions:
+            info["installed"] = True
+            info["version"] = versions[0].lstrip("v")
+            info["path"] = str(cuda_base / versions[0])
+
+    # Method 3: Check DLLs in llama.cpp directory
+    try:
+        llama_dlls = list(check_dir.glob("cudart64_*.dll"))
+        if llama_dlls:
+            dll_name = llama_dlls[0].name
+            ver_match = re.search(r"cudart64_(\d+)\.dll", dll_name)
+            if ver_match:
+                info["cuda_runtime_version"] = ver_match.group(1)
+                info["dlls_ok"] = True
+                for tpl in REQUIRED_CUDA_DLLS:
+                    dll_path = check_dir / tpl.format(ver=ver_match.group(1))
+                    if not dll_path.exists():
+                        info["missing_dlls"].append(dll_path.name)
+                        info["dlls_ok"] = False
+    except Exception:
+        pass
+
+    # Fallback: if DLLs exist but check_dir was wrong, try config path
+    if not info["dlls_ok"] and config:
+        fallback = Path(config.llama_root)
+        if fallback.exists():
+            try:
+                llama_dlls = list(fallback.glob("cudart64_*.dll"))
+                if llama_dlls:
+                    ver_match = re.search(r"cudart64_(\d+)\.dll", llama_dlls[0].name)
+                    if ver_match:
+                        info["cuda_runtime_version"] = ver_match.group(1)
+                        info["dlls_ok"] = True
+                        for tpl in REQUIRED_CUDA_DLLS:
+                            dll_path = fallback / tpl.format(ver=ver_match.group(1))
+                            if not dll_path.exists():
+                                info["missing_dlls"].append(dll_path.name)
+                                info["dlls_ok"] = False
+            except Exception:
+                pass
+
+    return info
+
+
+def get_recommended_settings(gpu: dict) -> dict:
+    """Get recommended llama-server settings for a specific GPU."""
+    settings = {}
+    cc = gpu.get("compute_cap", "8.0")
+    mem_mb = gpu.get("memory_total_mb", 8000)
+    arch_info = GPU_ARCH_INFO.get(cc, {"arch": "Unknown", "flash_attn": "auto", "max_ctx": 8192})
+
+    # Flash attention: not supported on Pascal (P100, GTX 10xx)
+    if arch_info["flash_attn"] is False:
+        settings["flash_attn"] = "off"
+    elif arch_info["flash_attn"] is True:
+        settings["flash_attn"] = "auto"
+    else:
+        settings["flash_attn"] = "auto"
+
+    # Context size based on VRAM
+    if mem_mb >= 24000:
+        settings["ctx_size"] = 32768
+    elif mem_mb >= 16000:
+        settings["ctx_size"] = 16384
+    elif mem_mb >= 12000:
+        settings["ctx_size"] = 8192
+    elif mem_mb >= 8000:
+        settings["ctx_size"] = 4096
+    else:
+        settings["ctx_size"] = 2048
+
+    # GPU layers: auto for most, but P100 needs manual tuning
+    if gpu.get("is_p100"):
+        settings["gpu_layers"] = "auto"
+        settings["ctx_size"] = min(settings["ctx_size"], 16384)  # P100 HBM2 bandwidth limit
+    else:
+        settings["gpu_layers"] = "auto"
+
+    # KV cache quantization: disable on older GPUs to save VRAM differently
+    if cc in ("6.0", "6.1"):
+        settings["cache_type_k"] = "f16"
+        settings["cache_type_v"] = "f16"
+
+    return settings
 
 DEFAULT_SETTINGS = {
     "host": "127.0.0.1",
@@ -99,6 +389,76 @@ LOAD_PROFILES = {
 }
 
 
+# ── Shared helpers (DRY) ──────────────────────────────────────────────
+
+def _normalize_flash_attn(value) -> str:
+    if value in (True, "true", "True", "on", "ON"):
+        return "on"
+    if value in (False, "false", "False", "off", "OFF"):
+        return "off"
+    return "auto"
+
+
+def build_llama_command(
+    server_path: str,
+    model_path: str,
+    host: str,
+    port: int,
+    ctx_size: int,
+    gpu_layers,
+    settings: dict,
+) -> list[str]:
+    s = settings
+    command = [
+        server_path, "-m", model_path,
+        "--host", host, "--port", str(port),
+        "-c", str(ctx_size),
+        "-ngl", str(gpu_layers),
+        "-t", str(s["threads"]),
+        "-b", str(s["batch_size"]),
+        "-ub", str(s["ubatch_size"]),
+        "-fa", _normalize_flash_attn(s["flash_attn"]),
+        "--cache-type-k", s["cache_type_k"],
+        "--cache-type-v", s["cache_type_v"],
+        "--reasoning", s["reasoning"],
+        "--reasoning-budget", str(s["reasoning_budget"]),
+    ]
+    if s["mlock"]:
+        command.append("--mlock")
+    if not s["mmap"]:
+        command.append("--no-mmap")
+    if not s["kv_offload"]:
+        command.append("--no-kv-offload")
+    if not s["webui"]:
+        command.append("--no-webui")
+    mmproj = s.get("mmproj", "").strip()
+    if mmproj:
+        command.extend(["--mmproj", mmproj])
+    extra = s.get("extra_args", "").strip()
+    if extra:
+        command.extend(extra.split())
+    return command
+
+
+def build_chat_payload(messages: list[dict], settings: dict, stream: bool = False) -> dict:
+    payload = {
+        "messages": messages,
+        "temperature": settings.get("temperature", 0.7),
+        "top_k": settings.get("top_k", 40),
+        "top_p": settings.get("top_p", 0.9),
+        "min_p": settings.get("min_p", 0.05),
+        "repeat_penalty": settings.get("repeat_penalty", 1.08),
+        "presence_penalty": settings.get("presence_penalty", 0.0),
+        "frequency_penalty": settings.get("frequency_penalty", 0.0),
+        "seed": settings.get("seed", -1),
+        "stream": stream,
+    }
+    max_tok = settings.get("max_tokens", -1)
+    if max_tok and max_tok != -1:
+        payload["max_tokens"] = max_tok
+    return payload
+
+
 @dataclass
 class AppConfig:
     llama_root: str = str(LLAMA_ROOT)
@@ -140,7 +500,6 @@ class AppConfig:
         )
 
 
-
 class LlamaServer:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
@@ -160,7 +519,11 @@ class LlamaServer:
         if not model.exists():
             return {"ok": False, "error": "Выберите существующий .gguf файл"}
 
-        command = self._build_command(server, model)
+        s = self.config.settings
+        command = build_llama_command(
+            str(server), str(model), s["host"], s["port"],
+            s["ctx_size"], s["gpu_layers"], s,
+        )
         self._log("Запуск: " + subprocess.list2cmdline(command))
 
         try:
@@ -189,7 +552,20 @@ class LlamaServer:
             self.process.wait(timeout=8)
         except subprocess.TimeoutExpired:
             self.process.kill()
+            self.process.wait(timeout=3)
+        # Clean up: drain queue, clear logs, release process handle
+        while not self.output_queue.empty():
+            try:
+                self.output_queue.get_nowait()
+            except queue.Empty:
+                break
+        self.logs.clear()
+        self.process = None
         return {"ok": True, "message": "Сервер остановлен"}
+
+    def restart(self) -> dict:
+        self.stop()
+        return self.start()
 
     def status(self) -> dict:
         running = self.process is not None and self.process.poll() is None
@@ -198,13 +574,11 @@ class LlamaServer:
             return {"running": True, "ready": True, "url": base}
         elif running:
             return {"running": True, "ready": False, "message": "Сервер запускается"}
-            
-        # Check if the process exited with an error
+
         if self.process is not None:
             code = self.process.poll()
             if code is not None and code != 0:
                 err_msg = f"Процесс завершился с кодом {code}"
-                # Search for error details in last 15 log entries
                 for log in reversed(self.logs[-15:]):
                     clean = log
                     if log.startswith('[') and ']' in log:
@@ -216,25 +590,12 @@ class LlamaServer:
                         err_msg = clean
                         break
                 return {"running": False, "ready": False, "crashed": True, "error": err_msg}
-                
-        return {"running": False, "ready": False}
 
+        return {"running": False, "ready": False}
 
     def chat(self, messages: list[dict], settings: dict) -> dict:
         base = f"http://{self.config.settings['host']}:{self.config.settings['port']}"
-        payload = {
-            "messages": messages,
-            "temperature": settings.get("temperature", 0.7),
-            "top_k": settings.get("top_k", 40),
-            "top_p": settings.get("top_p", 0.9),
-            "min_p": settings.get("min_p", 0.05),
-            "repeat_penalty": settings.get("repeat_penalty", 1.08),
-            "presence_penalty": settings.get("presence_penalty", 0.0),
-            "frequency_penalty": settings.get("frequency_penalty", 0.0),
-            "max_tokens": settings.get("max_tokens", -1),
-            "seed": settings.get("seed", -1),
-            "stream": False,
-        }
+        payload = build_chat_payload(messages, settings, stream=False)
         req = urllib.request.Request(
             base + "/v1/chat/completions",
             data=json.dumps(payload).encode("utf-8"),
@@ -258,42 +619,6 @@ class LlamaServer:
             pass
         return collected
 
-    def _build_command(self, server: Path, model: Path) -> list[str]:
-        s = self.config.settings
-        command = [
-            str(server), "-m", str(model),
-            "--host", s["host"], "--port", str(s["port"]),
-            "-c", str(s["ctx_size"]),
-            "-ngl", str(s["gpu_layers"]),
-            "-t", str(s["threads"]),
-            "-b", str(s["batch_size"]),
-            "-ub", str(s["ubatch_size"]),
-            "-fa", (
-                "on" if s["flash_attn"] in (True, "true", "True", "on", "ON")
-                else ("off" if s["flash_attn"] in (False, "false", "False", "off", "OFF")
-                else "auto")
-            ),
-            "--cache-type-k", s["cache_type_k"],
-            "--cache-type-v", s["cache_type_v"],
-            "--reasoning", s["reasoning"],
-            "--reasoning-budget", str(s["reasoning_budget"]),
-        ]
-        if s["mlock"]:
-            command.append("--mlock")
-        if not s["mmap"]:
-            command.append("--no-mmap")
-        if not s["kv_offload"]:
-            command.append("--no-kv-offload")
-        if not s["webui"]:
-            command.append("--no-webui")
-        mmproj = s.get("mmproj", "").strip()
-        if mmproj:
-            command.extend(["--mmproj", mmproj])
-        extra = s.get("extra_args", "").strip()
-        if extra:
-            command.extend(extra.split())
-        return command
-
     def _read_output(self) -> None:
         if not self.process or not self.process.stdout:
             return
@@ -315,7 +640,6 @@ class LlamaServer:
 
 @dataclass
 class ModelSlot:
-    """Один слот модели в пуле."""
     id: str
     model_path: str = ""
     port: int = 8080
@@ -334,8 +658,6 @@ class ModelSlot:
 
 
 class ModelPool:
-    """Пул запущенных моделей на разных портах."""
-
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.slots: dict[str, ModelSlot] = {}
@@ -343,8 +665,18 @@ class ModelPool:
         self._sync_slots()
 
     def _sync_slots(self) -> None:
-        """Синхронизировать слоты из конфига."""
         profile = LOAD_PROFILES.get(self.config.load_profile, LOAD_PROFILES["single"])
+        target_ids = {s["id"] for s in profile["slots"]}
+
+        # Stop and remove slots not in current profile
+        for sid in list(self.slots.keys()):
+            if sid not in target_ids:
+                slot = self.slots[sid]
+                if slot.is_running():
+                    self.stop_slot(sid)
+                del self.slots[sid]
+
+        # Add missing slots from profile
         for slot_def in profile["slots"]:
             sid = slot_def["id"]
             if sid not in self.slots:
@@ -359,41 +691,10 @@ class ModelPool:
 
     def _build_command(self, slot: ModelSlot) -> list[str]:
         s = self.config.settings
-        server = Path(self.config.server_exe)
-        model = Path(slot.model_path)
-        command = [
-            str(server), "-m", str(model),
-            "--host", s["host"], "--port", str(slot.port),
-            "-c", str(slot.ctx_size),
-            "-ngl", str(slot.gpu_layers),
-            "-t", str(s["threads"]),
-            "-b", str(s["batch_size"]),
-            "-ub", str(s["ubatch_size"]),
-            "-fa", (
-                "on" if s["flash_attn"] in (True, "true", "True", "on", "ON")
-                else ("off" if s["flash_attn"] in (False, "false", "False", "off", "OFF")
-                else "auto")
-            ),
-            "--cache-type-k", s["cache_type_k"],
-            "--cache-type-v", s["cache_type_v"],
-            "--reasoning", s["reasoning"],
-            "--reasoning-budget", str(s["reasoning_budget"]),
-        ]
-        if s["mlock"]:
-            command.append("--mlock")
-        if not s["mmap"]:
-            command.append("--no-mmap")
-        if not s["kv_offload"]:
-            command.append("--no-kv-offload")
-        if not s["webui"]:
-            command.append("--no-webui")
-        mmproj = s.get("mmproj", "").strip()
-        if mmproj:
-            command.extend(["--mmproj", mmproj])
-        extra = s.get("extra_args", "").strip()
-        if extra:
-            command.extend(extra.split())
-        return command
+        return build_llama_command(
+            self.config.server_exe, slot.model_path,
+            s["host"], slot.port, slot.ctx_size, slot.gpu_layers, s,
+        )
 
     def start_slot(self, slot_id: str) -> dict:
         if slot_id not in self.slots:
@@ -403,7 +704,7 @@ class ModelPool:
             return {"ok": False, "error": f"Слот '{slot_id}' уже запущен"}
         if not slot.model_path:
             return {"ok": False, "error": f"Слот '{slot_id}': модель не назначена"}
-        # Check port conflict with old singleton server
+        # Port conflict check with singleton server
         if slot.port == self.config.settings.get("port"):
             try:
                 from app import server as _singleton
@@ -448,7 +749,6 @@ class ModelPool:
         except subprocess.TimeoutExpired:
             slot.process.kill()
             slot.process.wait(timeout=3)
-        # Clean up: drain queue, clear logs, release process handle
         while not slot.output_queue.empty():
             try:
                 slot.output_queue.get_nowait()
@@ -486,7 +786,6 @@ class ModelPool:
         return result
 
     def get_slot_for_complexity(self, complexity: float) -> ModelSlot:
-        """Выбрать слот по сложности запроса (0.0-1.0)."""
         available = {sid: s for sid, s in self.slots.items() if s.is_running()}
         if not available:
             return list(self.slots.values())[0] if self.slots else None
@@ -509,6 +808,9 @@ class ModelPool:
             self.last_used_slot = slot.id
         return slot
 
+    def get_assigned_models(self) -> dict[str, str]:
+        return {sid: slot.model_path for sid, slot in self.slots.items() if slot.model_path}
+
     def _health_check(self, port: int) -> bool:
         host = self.config.settings["host"]
         try:
@@ -524,7 +826,6 @@ class ModelPool:
             slot.output_queue.put(line.rstrip())
 
     def save_slot_config(self) -> None:
-        """Сохранить конфигурацию слотов в config."""
         for sid, slot in self.slots.items():
             self.config.model_slots[sid] = {
                 "model_path": slot.model_path,
@@ -575,7 +876,6 @@ from orchestrator_api import orchestrator_bp
 app.register_blueprint(orchestrator_bp)
 
 
-
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -596,11 +896,37 @@ def parse_params(filename: str) -> tuple[str, float]:
 
 
 @app.route("/api/models")
+def find_mmproj_for_model(model_path: Path) -> str | None:
+    """Find matching mmproj file for a model."""
+    model_dir = model_path.parent
+    model_stem = model_path.stem  # e.g. "gemma-4-12B-it-Q6_K"
+
+    # Strategy 1: look for mmproj in same directory
+    for f in model_dir.iterdir():
+        if f.suffix == ".gguf" and "mmproj" in f.name.lower():
+            # Check if it's a compatible mmproj (same model family)
+            model_base = re.sub(r'[-_](Q\d+_\w+|Q\d+|F\d+|FP\d+|q\d+k?\w*)$', '', model_stem, flags=re.IGNORECASE)
+            mmproj_base = f.stem
+            # Simple heuristic: if model name components overlap with mmproj name
+            model_words = set(re.split(r'[-_]', model_base.lower()))
+            mmproj_words = set(re.split(r'[-_]', mmproj_base.lower()))
+            # At least 2 significant words must match (e.g. "gemma", "4", "12b")
+            model_significant = {w for w in model_words if len(w) > 1 and not w.startswith('q')}
+            mmproj_significant = {w for w in mmproj_words if len(w) > 1 and not w.startswith('q') and w != 'mmproj'}
+            if model_significant & mmproj_significant:
+                return str(f.resolve())
+
+    # Strategy 2: look for mmproj with similar name pattern
+    for f in model_dir.rglob("*mmproj*.gguf"):
+        return str(f.resolve())
+
+    return None
+
+
 def api_models():
     models = []
     seen = set()
-    
-    # 1. Scan folders in models_dirs
+
     for d_str in config.models_dirs:
         d = Path(d_str)
         if d.exists() and d.is_dir():
@@ -609,9 +935,13 @@ def api_models():
                     m_str = str(m.resolve())
                     if m_str in seen:
                         continue
+                    # Skip mmproj files in the main listing
+                    if "mmproj" in m.name.lower():
+                        continue
                     seen.add(m_str)
                     size_gb = m.stat().st_size / (1024 ** 3)
                     p_str, p_num = parse_params(m.name)
+                    mmproj = find_mmproj_for_model(m)
                     models.append({
                         "path": m_str,
                         "name": m.name,
@@ -620,16 +950,19 @@ def api_models():
                         "selected": m_str == config.selected_model,
                         "custom": False,
                         "params": p_str,
-                        "params_num": p_num
+                        "params_num": p_num,
+                        "mmproj": mmproj,
+                        "has_vision": mmproj is not None,
                     })
             except Exception:
                 pass
-                
-    # 2. Add custom files
+
     valid_customs = []
     for c_str in config.custom_models:
         c = Path(c_str)
         if c.exists() and c.is_file():
+            if "mmproj" in c.name.lower():
+                continue
             m_str = str(c.resolve())
             valid_customs.append(m_str)
             if m_str in seen:
@@ -637,6 +970,7 @@ def api_models():
             seen.add(m_str)
             size_gb = c.stat().st_size / (1024 ** 3)
             p_str, p_num = parse_params(c.name)
+            mmproj = find_mmproj_for_model(c)
             models.append({
                 "path": m_str,
                 "name": c.name,
@@ -645,15 +979,16 @@ def api_models():
                 "selected": m_str == config.selected_model,
                 "custom": True,
                 "params": p_str,
-                "params_num": p_num
+                "params_num": p_num,
+                "mmproj": mmproj,
+                "has_vision": mmproj is not None,
             })
-            
+
     if len(valid_customs) != len(config.custom_models):
         config.custom_models = valid_customs
         config.save()
-        
-    return jsonify(models)
 
+    return jsonify(models)
 
 
 @app.route("/api/models/dirs", methods=["GET"])
@@ -724,10 +1059,8 @@ def api_open_explorer():
         return jsonify({"ok": False, "error": "Путь не существует"})
     try:
         if path.is_file():
-            # Open explorer and select file
             subprocess.run(f'explorer /select,"{path}"', creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
         else:
-            # Open folder
             os.startfile(path)
         return jsonify({"ok": True})
     except Exception as e:
@@ -805,6 +1138,51 @@ def api_stop_server():
     return jsonify(server.stop())
 
 
+@app.route("/api/server/restart", methods=["POST"])
+def api_restart_server():
+    data = request.get_json() or {}
+    if "settings" in data:
+        config.settings.update(data["settings"])
+    if "selected_model" in data:
+        config.selected_model = data["selected_model"]
+    config.save()
+    return jsonify(server.restart())
+
+
+@app.route("/api/models/vision", methods=["POST"])
+def api_toggle_vision():
+    data = request.get_json() or {}
+    model_path = data.get("model_path", "")
+    mmproj_path = data.get("mmproj", "")
+
+    if not model_path:
+        return jsonify({"ok": False, "error": "model_path required"}), 400
+
+    # If mmproj is empty, disable vision
+    if not mmproj_path:
+        config.settings["mmproj"] = ""
+        config.save()
+        return jsonify({"ok": True, "vision": False, "mmproj": ""})
+
+    # Validate mmproj exists
+    mmproj_file = Path(mmproj_path)
+    if not mmproj_file.exists():
+        return jsonify({"ok": False, "error": f"mmproj not found: {mmproj_path}"}), 400
+
+    # Set mmproj and model, then restart
+    config.settings["mmproj"] = mmproj_path
+    config.selected_model = model_path
+    config.save()
+
+    # Restart server if running
+    if server.process and server.process.poll() is None:
+        result = server.restart()
+    else:
+        result = {"ok": True, "message": "Settings saved, start server to apply"}
+
+    return jsonify({"ok": True, "vision": True, "mmproj": mmproj_path, "restart": result})
+
+
 @app.route("/api/server/status")
 def api_server_status():
     return jsonify(server.status())
@@ -813,6 +1191,124 @@ def api_server_status():
 @app.route("/api/server/logs")
 def api_server_logs():
     return jsonify({"logs": server.get_logs(), "all_logs": server.logs[-200:]})
+
+
+@app.route("/api/gpu/info", methods=["GET"])
+def api_gpu_info():
+    gpus = detect_gpu()
+    cuda = detect_cuda_version(config.llama_root)
+    recommended = {}
+    if gpus:
+        recommended = get_recommended_settings(gpus[0])
+    return jsonify({
+        "gpus": gpus,
+        "cuda": cuda,
+        "recommended": recommended,
+        "arch_info": GPU_ARCH_INFO,
+    })
+
+
+@app.route("/api/gpu/recommend", methods=["POST"])
+def api_gpu_recommend():
+    data = request.get_json() or {}
+    gpu_index = data.get("gpu_index", 0)
+    gpus = detect_gpu()
+    if gpu_index >= len(gpus):
+        return jsonify({"ok": False, "error": "GPU не найден"}), 400
+    rec = get_recommended_settings(gpus[gpu_index])
+    return jsonify({"ok": True, "recommended": rec, "gpu": gpus[gpu_index]})
+
+
+@app.route("/api/gpu/apply-recommended", methods=["POST"])
+def api_gpu_apply_recommended():
+    data = request.get_json() or {}
+    gpu_index = data.get("gpu_index", 0)
+    gpus = detect_gpu()
+    if gpu_index >= len(gpus):
+        return jsonify({"ok": False, "error": "GPU не найден"}), 400
+    rec = get_recommended_settings(gpus[gpu_index])
+    config.settings.update(rec)
+    config.save()
+    return jsonify({"ok": True, "applied": rec, "gpu": gpus[gpu_index]["name"]})
+
+
+@app.route("/api/cuda/update", methods=["POST"])
+def api_cuda_update():
+    llama_dir = Path(config.llama_root)
+    cuda = detect_cuda_version(config.llama_root)
+    if cuda.get("dlls_ok"):
+        return jsonify({"ok": True, "message": "CUDA DLLs уже установлены и корректны"})
+
+    # Try to detect which CUDA version the existing DLLs need
+    cuda_ver = cuda.get("cuda_runtime_version")
+    if not cuda_ver:
+        # Default to version 13 if we can't detect
+        cuda_ver = "13"
+
+    downloaded = []
+    errors = []
+
+    # Download each missing DLL
+    for tpl in REQUIRED_CUDA_DLLS:
+        dll_name = tpl.format(ver=cuda_ver)
+        target = llama_dir / dll_name
+        if target.exists():
+            continue
+
+        # Try to find it in CUDA toolkit path
+        if cuda.get("path"):
+            src = Path(cuda["path"]) / "bin" / dll_name
+            if src.exists():
+                try:
+                    import shutil
+                    shutil.copy2(str(src), str(target))
+                    downloaded.append(dll_name)
+                    continue
+                except Exception as e:
+                    errors.append(f"Ошибка копирования {dll_name}: {e}")
+
+        errors.append(f"Не найден {dll_name}. Установите CUDA Toolkit v{cuda_ver} или скопируйте DLL вручную.")
+
+    if downloaded and not errors:
+        return jsonify({"ok": True, "message": f"Скопировано {len(downloaded)} DLL", "files": downloaded})
+    elif downloaded:
+        return jsonify({"ok": False, "message": f"Частично: скопировано {len(downloaded)}, ошибки: {len(errors)}",
+                        "downloaded": downloaded, "errors": errors})
+    else:
+        return jsonify({"ok": False, "message": "Не удалось обновить CUDA DLLs",
+                        "errors": errors or ["Установите CUDA Toolkit и скопируйте cudart64_*.dll в папку llama.cpp"]})
+
+
+# ── llama.cpp Update endpoints ─────────────────────────────────────
+
+@app.route("/api/llamacpp/version", methods=["GET"])
+def api_llamacpp_version():
+    info = check_llama_cpp_version()
+    return jsonify(info)
+
+
+@app.route("/api/llamacpp/update", methods=["POST"])
+def api_llamacpp_update():
+    data = request.get_json() or {}
+    url = data.get("url", "")
+    if not url:
+        # Auto-detect latest Windows release with CUDA 13
+        info = check_llama_cpp_version()
+        assets = info.get("windows_assets", [])
+
+        # Pick CUDA 13 build if available, otherwise first Windows build
+        for asset in assets:
+            if "cuda 13" in asset.get("name", "").lower():
+                url = asset.get("url", "")
+                break
+        if not url and assets:
+            url = assets[0].get("url", "")
+
+        if not url:
+            return jsonify({"ok": False, "error": "No Windows assets found in latest release"})
+
+    result = download_llama_cpp_release(url, config.llama_root)
+    return jsonify(result)
 
 
 @app.route("/api/pool/profiles", methods=["GET"])
@@ -839,6 +1335,11 @@ def api_pool_set_profile():
 @app.route("/api/pool/status", methods=["GET"])
 def api_pool_status():
     return jsonify(pool.status_all())
+
+
+@app.route("/api/pool/models", methods=["GET"])
+def api_pool_models():
+    return jsonify({"assigned": pool.get_assigned_models()})
 
 
 @app.route("/api/pool/start", methods=["POST"])
@@ -894,29 +1395,17 @@ def api_chat():
     messages = data.get("messages", [])
     settings = data.get("settings", config.settings)
     stream = data.get("stream", False)
-    
+
     if not stream:
         try:
             result = server.chat(messages, settings)
             return jsonify(result)
         except Exception as exc:
             return jsonify({"ok": False, "error": str(exc)}), 500
-            
+
     base = f"http://{config.settings['host']}:{config.settings['port']}"
-    payload = {
-        "messages": messages,
-        "temperature": settings.get("temperature", 0.7),
-        "top_k": settings.get("top_k", 40),
-        "top_p": settings.get("top_p", 0.9),
-        "min_p": settings.get("min_p", 0.05),
-        "repeat_penalty": settings.get("repeat_penalty", 1.08),
-        "presence_penalty": settings.get("presence_penalty", 0.0),
-        "frequency_penalty": settings.get("frequency_penalty", 0.0),
-        "max_tokens": settings.get("max_tokens", -1),
-        "seed": settings.get("seed", -1),
-        "stream": True,
-    }
-    
+    payload = build_chat_payload(messages, settings, stream=True)
+
     def generate():
         req = urllib.request.Request(
             base + "/v1/chat/completions",
@@ -933,7 +1422,7 @@ def api_chat():
                     yield line
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n".encode("utf-8")
-            
+
     return Response(generate(), mimetype="text/event-stream")
 
 
@@ -973,8 +1462,7 @@ def api_save_chat(chat_id):
     messages = data.get("messages", [])
     title = data.get("title", "Новый диалог").strip()
     created_at = data.get("created_at", time.time())
-    
-    # Save file
+
     f = CHATS_DIR / f"{chat_id}.json"
     chat_data = {
         "id": chat_id,
@@ -1001,7 +1489,76 @@ def api_delete_chat(chat_id):
     return jsonify({"ok": False, "error": "Файл не найден"}), 404
 
 
+# ── File Upload & Analysis endpoints ───────────────────────────────
+
+UPLOADS_DIR = APP_DIR / "uploads"
+UPLOADS_DIR.mkdir(exist_ok=True)
+
+
+@app.route("/api/files/upload", methods=["POST"])
+def api_upload_file():
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "No file part"}), 400
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"ok": False, "error": "No selected file"}), 400
+    safe_name = file.filename.replace("/", "_").replace("\\", "_").replace("..", "_")
+    target = UPLOADS_DIR / safe_name
+    file.save(str(target))
+    return jsonify({"ok": True, "path": str(target), "name": safe_name, "size": target.stat().st_size})
+
+
+@app.route("/api/files/upload-base64", methods=["POST"])
+def api_upload_base64():
+    data = request.get_json() or {}
+    filename = data.get("filename", "image.png")
+    b64_data = data.get("data", "")
+    if not b64_data:
+        return jsonify({"ok": False, "error": "No base64 data"}), 400
+    try:
+        file_data = base64.b64decode(b64_data)
+    except Exception:
+        return jsonify({"ok": False, "error": "Invalid base64"}), 400
+    safe_name = filename.replace("/", "_").replace("\\", "_").replace("..", "_")
+    target = UPLOADS_DIR / safe_name
+    target.write_bytes(file_data)
+    return jsonify({"ok": True, "path": str(target), "name": safe_name, "size": len(file_data)})
+
+
+@app.route("/api/files/list", methods=["GET"])
+def api_list_files():
+    files = []
+    for item in sorted(UPLOADS_DIR.iterdir()):
+        if item.name.startswith(".") or item.is_dir():
+            continue
+        files.append({
+            "name": item.name,
+            "path": str(item),
+            "size": item.stat().st_size,
+            "ext": item.suffix.lower(),
+        })
+    return jsonify({"ok": True, "files": files})
+
+
+@app.route("/api/files/<filename>", methods=["GET"])
+def api_get_file(filename):
+    safe_name = filename.replace("/", "_").replace("\\", "_")
+    f = UPLOADS_DIR / safe_name
+    if not f.exists():
+        return jsonify({"ok": False, "error": "File not found"}), 404
+    from flask import send_file
+    return send_file(str(f))
+
+
+@app.route("/api/files/<filename>", methods=["DELETE"])
+def api_delete_file(filename):
+    safe_name = filename.replace("/", "_").replace("\\", "_")
+    f = UPLOADS_DIR / safe_name
+    if f.exists():
+        f.unlink()
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "File not found"}), 404
+
+
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5000, debug=False)
-
-
