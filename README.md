@@ -4,35 +4,14 @@
 
 ## Возможности
 
-- **Загрузка моделей** — запуск GGUF-моделей через llama-server.exe с настройкой параметров (контекст, GPU слои, сэмплинг)
-- **Мульти-модельный пул** — одновременная загрузка нескольких моделей на разных портах (быстрая + качественная)
-- **Роутинг по сложности** — автоматический выбор модели: простые запросы → лёгкая, сложные → тяжёлая
-- **Оркестратор агентов** — Agentic loop с инструментами (ERP, Python sandbox, мониторинг, поиск)
-- **Модульные агенты** — специализированные ИИ-помощники для каждого раздела ERP (персонал, задачи, графики)
-- **Самообучение** — запоминание успешных взаимодействий, обогащение базы знаний
-- **Мульти-пользовательность** — контекстные сессии для каждого сотрудника (SQLite)
-- **V-WebUI** — встроенный веб-интерфейс для управления моделями и чата
-
-## Архитектура
-
-```
-┌─────────────────────────────────────────────┐
-│  Flask App (port 5000)                      │
-│  ├── Web UI (templates/index.html)          │
-│  ├── Model Pool                             │
-│  │   ├── Slot "fast"    → llama-server :8080│
-│  │   └── Slot "quality" → llama-server :8081│
-│  └── Orchestrator API                       │
-│      ├── Complexity Router                  │
-│      ├── Tool Registry                      │
-│      ├── Session Store (SQLite)             │
-│      └── Self-Learner                       │
-└─────────────────────────────────────────────┘
-         │                    │
-         ▼                    ▼
-    llama-server.exe    ERP Backend (L-Start)
-    (LLM inference)     (tools, knowledge)
-```
+- **Загрузка моделей** — запуск GGUF-моделей через llama-server.exe с настройкой параметров
+- **Мульти-модельный пул** — одновременная загрузка нескольких моделей на разных портах
+- **Роутинг по сложности** — автоматический выбор модели по сложности запроса
+- **Оркестратор агентов** — Agentic loop с инструментами (ERP, Python sandbox, мониторинг)
+- **Мульти-пользовательность** — аккаунты с ролями (admin/user/readonly)
+- **Безопасность** — аутентификация, CORS, security headers, path traversal защита
+- **WireGuard** — доступ через VPN без дополнительной аутентификации
+- **Drag & Drop** — перетаскивание файлов в чат для анализа
 
 ## Быстрый старт
 
@@ -48,21 +27,81 @@ run.bat
 
 Открыть http://127.0.0.1:5000
 
+## Аутентификация
+
+### Веб-интерфейс
+- Логин: `admin`
+- Пароль: значение `orchestrator_api_key` из `runner_config.json`
+
+### API
+```bash
+curl -H "X-Orchestrator-API-Key: hermes_secret_api_key_2026" \
+  http://localhost:5000/api/server/status
+```
+
+### WireGuard
+При подключении через VPN (10.10.0.x) аутентификация не требуется.
+
 ## API
+
+Подробная документация: [API.md](API.md)
 
 | Эндпоинт | Метод | Описание |
 |-----------|-------|----------|
-| `/api/pool/status` | GET | Статус всех слотов моделей |
+| `/api/auth/login` | POST | Вход в систему |
+| `/api/accounts` | GET/POST | Управление аккаунтами |
+| `/api/models` | GET | Список моделей |
+| `/api/server/start` | POST | Запустить сервер |
+| `/api/server/stop` | POST | Остановить сервер |
+| `/api/server/status` | GET | Статус сервера |
+| `/api/pool/status` | GET | Статус пула моделей |
 | `/api/pool/start` | POST | Запустить все слоты |
-| `/api/pool/stop` | POST | Остановить все слоты |
-| `/api/pool/slot/assign` | POST | Назначить модель слоту |
+| `/api/chat` | POST | Отправить сообщение |
+| `/api/files/upload` | POST | Загрузить файл |
 | `/api/orchestrator/run` | POST | Запустить агента |
-| `/api/orchestrator/session/clear` | POST | Очистить контекст сессии |
-| `/api/orchestrator/learning/stats` | GET | Статистика обучения |
 
 ## Конфигурация
 
-`runner_config.json` — настройки сервера, моделей, профилей загрузки.
+### runner_config.json
+```json
+{
+  "settings": {
+    "host": "127.0.0.1",
+    "port": 8080,
+    "orchestrator_api_key": "your_secret_key",
+    "allowed_origins": []
+  }
+}
+```
+
+### .env
+```
+ORCHESTRATOR_API_KEY=your_secret_key
+ERP_API_KEY=erp_secret_key
+FLASK_SECRET_KEY=auto_generated
+```
+
+## Архитектура
+
+```
+┌─────────────────────────────────────────────┐
+│  Flask App (port 5000)                      │
+│  ├── Web UI (templates/index.html)          │
+│  ├── Account Manager (accounts.json)        │
+│  ├── Model Pool                             │
+│  │   ├── Slot "fast"    → llama-server :8080│
+│  │   └── Slot "quality" → llama-server :8081│
+│  └── Orchestrator API                       │
+│      ├── Complexity Router                  │
+│      ├── Tool Registry                      │
+│      ├── Session Store (SQLite)             │
+│      └── Self-Learner                       │
+└─────────────────────────────────────────────┘
+         │                    │
+         ▼                    ▼
+    llama-server.exe    ERP Backend (L-Start)
+    (LLM inference)     (tools, knowledge)
+```
 
 ## Стек
 
@@ -70,3 +109,15 @@ run.bat
 - llama.cpp (llama-server.exe)
 - SQLite (сессии, обучение)
 - Vanilla JS + Tailwind CSS (фронтенд)
+- WireGuard (VPN доступ)
+
+## Безопасность
+
+- Аутентификация: session-based (веб) + API keys (программно)
+- Роли: admin, user, readonly
+- Security headers: X-Content-Type-Options, X-Frame-Options, X-XSS-Protection
+- CORS: настраиваемый список разрешённых origin
+- Path traversal: санитизация путей в файлах и чатах
+- Command injection: list-form subprocess
+- XSS: DOMPurify для markdown
+- Upload limit: 100 MB

@@ -12,6 +12,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <!-- Marked.js (Markdown) -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- DOMPurify (XSS Protection) -->
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
     <!-- Highlight.js (Code Syntax Highlighting) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/atom-one-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -464,7 +466,13 @@
             </div>
 
             <!-- Chat Container -->
-            <div id="chatArea" class="flex-1 overflow-y-auto px-8 py-6 space-y-6 min-h-0">
+            <div id="chatArea" class="flex-1 overflow-y-auto px-8 py-6 space-y-6 min-h-0 relative">
+                <!-- Drop Zone Overlay -->
+                <div id="dropZone" class="hidden absolute inset-0 z-50 bg-slate-900/90 border-2 border-dashed border-emerald-500/50 rounded-2xl flex flex-col items-center justify-center m-4 pointer-events-none">
+                    <svg class="w-12 h-12 text-emerald-400 mb-3 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                    <p class="text-emerald-400 font-bold text-sm">Перетащите файл сюда</p>
+                    <p class="text-slate-500 text-xs mt-1" id="dropZoneHint"></p>
+                </div>
                 <!-- Welcome View -->
                 <div class="flex flex-col items-center justify-center h-full text-center max-w-lg mx-auto space-y-5">
                     <div class="w-16 h-16 rounded-2xl bg-slate-900 border border-white/5 flex items-center justify-center text-3xl shadow-inner select-none transition-transform hover:scale-110 duration-300">🦙</div>
@@ -746,6 +754,9 @@
                 <button onclick="setSettingsTab('models')" id="tabBtnModels" class="flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors">
                     Модели
                 </button>
+                <button onclick="setSettingsTab('security')" id="tabBtnSecurity" class="flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors">
+                    Безопасность
+                </button>
             </div>
 
             <!-- Modal Content (Scrollable) -->
@@ -960,6 +971,54 @@
                     <div id="poolStatus" class="text-[10px] text-slate-500 font-mono"></div>
                 </div>
 
+                <!-- Section: Security -->
+                <div id="settingsTabSecurity" class="space-y-5 hidden">
+                    <div class="p-4 bg-slate-900/50 border border-white/5 rounded-xl space-y-4">
+                        <h3 class="text-sm font-bold text-slate-200">Веб-логин</h3>
+                        <p class="text-[10px] text-slate-500">Пароль для входа в веб-интерфейс. Логин — любой (по умолчанию admin).</p>
+                        <div class="flex items-center gap-3">
+                            <label class="w-32 text-sm text-slate-400 shrink-0 font-medium">Пароль</label>
+                            <input id="set_orchestrator_api_key" type="password" class="flex-1 bg-slate-900 border border-white/5 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:border-emerald-500/50 outline-none" placeholder="API ключ / пароль">
+                        </div>
+                    </div>
+
+                    <div class="p-4 bg-slate-900/50 border border-white/5 rounded-xl space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-bold text-slate-200">Аккаунты</h3>
+                            <button onclick="showCreateAccountModal()" class="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/40 border border-emerald-500/20 text-emerald-400 text-[10px] font-semibold rounded-lg transition-all">+ Создать</button>
+                        </div>
+                        <p class="text-[10px] text-slate-500">Управление пользователями системы. Роли: admin (всё), user (чтение+запросы), readonly (только чтение).</p>
+                        <div id="accountsList" class="space-y-2">
+                            <!-- Rendered by JS -->
+                        </div>
+                    </div>
+
+                    <div class="p-4 bg-slate-900/50 border border-white/5 rounded-xl space-y-4">
+                        <h3 class="text-sm font-bold text-slate-200">API-ключи клиентов</h3>
+                        <p class="text-[10px] text-slate-500">Ключи для программного доступа к API (заголовок X-Client-API-Key).</p>
+                        <div id="clientKeysList" class="space-y-2">
+                            <!-- Rendered by JS -->
+                        </div>
+                        <button onclick="loadClientKeys()" class="px-3 py-1.5 bg-white/5 border border-white/5 text-slate-400 hover:text-slate-200 text-[10px] font-semibold rounded-lg transition-all">Обновить</button>
+                    </div>
+
+                    <div class="p-4 bg-slate-900/50 border border-white/5 rounded-xl space-y-4">
+                        <h3 class="text-sm font-bold text-slate-200">CORS (Cross-Origin)</h3>
+                        <p class="text-[10px] text-slate-500">Разрешённые домены/IP для кросс-доменных запросов. Пусто = запретить все.</p>
+                        <input id="set_allowed_origins" class="w-full bg-slate-900 border border-white/5 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:border-emerald-500/50 outline-none" placeholder='["https://myapp.com"] или ["*"]'>
+                    </div>
+
+                    <div class="p-4 bg-slate-900/50 border border-white/5 rounded-xl space-y-4">
+                        <h3 class="text-sm font-bold text-slate-200">WireGuard</h3>
+                        <p class="text-[10px] text-slate-500">Подсеть VPNtrusted без аутентификации. По умолчанию: 10.10.0.x</p>
+                        <div class="text-[10px] text-slate-400 font-mono bg-slate-950 rounded-lg p-3">
+                            Trusted subnet: 10.10.0.0/24<br>
+                            Flask: 0.0.0.0:5000<br>
+                            llama-server: 127.0.0.1:8080
+                        </div>
+                    </div>
+                </div>
+
             </div>
 
             <!-- Save settings footer button -->
@@ -975,13 +1034,87 @@
         </div>
     </div>
 
+    <!-- Login Modal -->
+    <div id="loginModal" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div class="bg-slate-900 border border-white/10 rounded-2xl p-8 w-full max-w-sm shadow-2xl">
+            <div class="text-center mb-6">
+                <div class="w-14 h-14 mx-auto rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-2xl mb-3">🦙</div>
+                <h2 class="text-lg font-bold text-slate-200">Llama Runner</h2>
+                <p class="text-xs text-slate-500 mt-1">Войдите для доступа к серверу</p>
+            </div>
+            <div class="space-y-3">
+                <input id="loginUser" type="text" placeholder="Логин (admin)" value="admin"
+                    class="w-full bg-slate-800 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:border-emerald-500/50 outline-none">
+                <input id="loginPass" type="password" placeholder="Пароль (API-ключ)"
+                    class="w-full bg-slate-800 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:border-emerald-500/50 outline-none"
+                    onkeydown="if(event.key==='Enter') doLogin()">
+                <p id="loginError" class="hidden text-xs text-red-400"></p>
+                <button onclick="doLogin()" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-xl transition-all">
+                    Войти
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- JS Logic -->
     <script>
         let cfg = {};
         let poolAssignedModels = {};  // {"fast": "path/to/model", ...}
 
+        // ── Global auth: session-based for web UI ──
+        const _origFetch = window.fetch;
+        window.fetch = async function(url, opts = {}) {
+            const res = await _origFetch(url, opts);
+            if (res.status === 401 && !url.includes('/api/auth/')) {
+                const authCheck = await _origFetch('/api/auth/check').then(r => r.json()).catch(() => ({}));
+                if (!authCheck.authenticated) {
+                    showLoginModal();
+                }
+            }
+            return res;
+        };
+
+        async function showLoginModal() {
+            const modal = document.getElementById('loginModal');
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        async function doLogin() {
+            const username = document.getElementById('loginUser').value.trim();
+            const password = document.getElementById('loginPass').value;
+            if (!password) return;
+            const res = await _origFetch('/api/auth/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ username: username || 'admin', password })
+            });
+            const data = await res.json();
+            if (data.ok) {
+                document.getElementById('loginModal').classList.add('hidden');
+                location.reload();
+            } else {
+                document.getElementById('loginError').textContent = data.error || 'Ошибка авторизации';
+                document.getElementById('loginError').classList.remove('hidden');
+            }
+        }
+
+        async function doLogout() {
+            await _origFetch('/api/auth/logout', { method: 'POST' });
+            location.reload();
+        }
+
+        async function checkAuth() {
+            try {
+                const res = await _origFetch('/api/auth/check');
+                const data = await res.json();
+                if (!data.authenticated && !location.hostname.match(/^(127\.0\.0\.1|::1)$/)) {
+                    showLoginModal();
+                }
+            } catch(e) {}
+        }
+
         function orchHeaders(extra) {
-            const key = cfg?.settings?.orchestrator_api_key;
+            const key = cfg?.settings?.orchestrator_api_key || authApiKey;
             const h = extra ? { ...extra } : {};
             if (key) h['X-Orchestrator-API-Key'] = key;
             return h;
@@ -1039,6 +1172,15 @@
 
         async function init() {
             try {
+                // Check auth for remote access
+                if (!location.hostname.match(/^(127\.0\.0\.1|::1|localhost)$/)) {
+                    const authRes = await fetch('/api/auth/check');
+                    const authData = await authRes.json();
+                    if (!authData.authenticated) {
+                        showLoginModal();
+                        return;
+                    }
+                }
                 const res = await fetch('/api/config');
                 cfg = await res.json();
                 populateSettings(cfg.settings);
@@ -1108,12 +1250,14 @@
             const viewGpu = document.getElementById('settingsTabGpu');
             const viewProfiles = document.getElementById('settingsTabProfiles');
             const viewModels = document.getElementById('settingsTabModels');
+            const btnSecurity = document.getElementById('tabBtnSecurity');
+            const viewSecurity = document.getElementById('settingsTabSecurity');
 
             // Reset
-            [btnRuntime, btnSampling, btnGpu, btnProfiles, btnModels].forEach(btn => {
+            [btnRuntime, btnSampling, btnGpu, btnProfiles, btnModels, btnSecurity].forEach(btn => {
                 btn.className = "flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors";
             });
-            [viewRuntime, viewSampling, viewGpu, viewProfiles, viewModels].forEach(view => view.classList.add('hidden'));
+            [viewRuntime, viewSampling, viewGpu, viewProfiles, viewModels, viewSecurity].forEach(view => view.classList.add('hidden'));
 
             if (tab === 'runtime') {
                 btnRuntime.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-400 transition-colors";
@@ -1130,6 +1274,11 @@
                 btnModels.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-400 transition-colors";
                 viewModels.classList.remove('hidden');
                 loadPoolUI();
+            } else if (tab === 'security') {
+                btnSecurity.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-400 transition-colors";
+                viewSecurity.classList.remove('hidden');
+                loadClientKeys();
+                loadAccounts();
             } else {
                 btnProfiles.className = "flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-400 transition-colors";
                 viewProfiles.classList.remove('hidden');
@@ -1277,6 +1426,93 @@
             return s;
         }
 
+        async function loadClientKeys() {
+            const container = document.getElementById('clientKeysList');
+            if (!container) return;
+            try {
+                const res = await fetch('/api/clients', { headers: orchHeaders() });
+                const data = await res.json();
+                const clients = data.clients || [];
+                container.innerHTML = clients.map(c => `
+                    <div class="flex items-center justify-between p-2.5 bg-slate-950/50 border border-white/5 rounded-lg">
+                        <div>
+                            <span class="text-xs font-bold text-slate-300">${c.client_id}</span>
+                            <span class="text-[10px] text-slate-500 ml-2">${c.name}</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] ${c.has_key ? 'text-emerald-400' : 'text-red-400'}">${c.has_key ? 'ключ задан' : 'нет ключа'}</span>
+                            <span class="text-[10px] text-slate-500">${c.enabled ? 'вкл' : 'выкл'}</span>
+                        </div>
+                    </div>
+                `).join('') || '<p class="text-[10px] text-slate-500">Нет клиентов</p>';
+            } catch (err) {
+                container.innerHTML = '<p class="text-[10px] text-red-400">Ошибка загрузки</p>';
+            }
+        }
+
+        // ── Account Management ─────────────────────────────────────
+        async function loadAccounts() {
+            const container = document.getElementById('accountsList');
+            if (!container) return;
+            try {
+                const res = await fetch('/api/accounts');
+                const data = await res.json();
+                const accs = data.accounts || [];
+                container.innerHTML = accs.map(a => `
+                    <div class="flex items-center justify-between p-2.5 bg-slate-950/50 border border-white/5 rounded-lg">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-bold text-slate-300">${a.username}</span>
+                            <span class="px-1.5 py-0.5 rounded text-[8px] font-bold ${a.role === 'admin' ? 'bg-emerald-500/20 text-emerald-400' : a.role === 'readonly' ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-500/20 text-slate-400'}">${a.role}</span>
+                            <span class="text-[10px] text-slate-500">${a.display_name || ''}</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] ${a.enabled ? 'text-emerald-400' : 'text-red-400'}">${a.enabled ? 'вкл' : 'выкл'}</span>
+                            ${a.username !== 'admin' ? `<button onclick="deleteAccount('${a.username}')" class="text-[10px] text-red-400 hover:text-red-300">✕</button>` : ''}
+                        </div>
+                    </div>
+                `).join('') || '<p class="text-[10px] text-slate-500">Нет аккаунтов</p>';
+            } catch (err) {
+                container.innerHTML = '<p class="text-[10px] text-red-400">Ошибка загрузки</p>';
+            }
+        }
+
+        function showCreateAccountModal() {
+            const username = prompt('Логин нового пользователя:');
+            if (!username) return;
+            const password = prompt('Пароль:');
+            if (!password) return;
+            const role = prompt('Роль (admin/user/readonly):', 'user') || 'user';
+            createAccount(username, password, role);
+        }
+
+        async function createAccount(username, password, role) {
+            try {
+                const res = await fetch('/api/accounts', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ username, password, role })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    loadAccounts();
+                } else {
+                    alert(data.error || 'Ошибка создания');
+                }
+            } catch (err) {
+                alert('Ошибка: ' + err.message);
+            }
+        }
+
+        async function deleteAccount(username) {
+            if (!confirm(`Удалить аккаунт "${username}"?`)) return;
+            try {
+                await fetch(`/api/accounts/${username}`, { method: 'DELETE' });
+                loadAccounts();
+            } catch (err) {
+                alert('Ошибка: ' + err.message);
+            }
+        }
+
         // Open in Windows Explorer helper
         async function openExplorer(path, event) {
             if (event) event.stopPropagation(); // prevent selectModel click
@@ -1403,7 +1639,7 @@
 
                 const isVisionActive = cfg.settings.mmproj && cfg.settings.mmproj === m.mmproj;
                 const visionIcon = m.has_vision
-                    ? `<button onclick="toggleVision('${m.path}', '${m.mmproj}', event)" class="p-1 rounded-lg transition-all ${isVisionActive ? 'text-violet-400 bg-violet-500/10' : 'text-slate-500 hover:text-violet-400 hover:bg-white/5'} opacity-0 group-hover/card:opacity-100 ${isVisionActive ? '!opacity-100' : ''}" title="${isVisionActive ? 'Vision активен' : 'Включить Vision (мультимодальность)'}">
+                    ? `<button onclick="toggleVision(this, event)" data-model="${m.path}" data-mmproj="${m.mmproj}" class="p-1 rounded-lg transition-all ${isVisionActive ? 'text-violet-400 bg-violet-500/10' : 'text-slate-500 hover:text-violet-400 hover:bg-white/5'} opacity-0 group-hover/card:opacity-100 ${isVisionActive ? '!opacity-100' : ''}" title="${isVisionActive ? 'Vision активен' : 'Включить Vision (мультимодальность)'}">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                         </button>`
                     : '';
@@ -1443,8 +1679,10 @@
             sortAndRenderModels();
         }
 
-        async function toggleVision(modelPath, mmprojPath, event) {
+        async function toggleVision(btn, event) {
             event.stopPropagation();
+            const modelPath = btn.dataset.model;
+            const mmprojPath = btn.dataset.mmproj;
             const currentMmproj = cfg.settings.mmproj;
             const enableVision = currentMmproj !== mmprojPath;
 
@@ -1636,6 +1874,75 @@
             if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); sendMessage(); }
         }
 
+        // ── Drag & Drop files ──────────────────────────────────────
+        let droppedFile = null;
+
+        function initDragDrop() {
+            const chatArea = document.getElementById('chatArea');
+            const dropZone = document.getElementById('dropZone');
+            const hint = document.getElementById('dropZoneHint');
+            let dragCounter = 0;
+
+            chatArea.addEventListener('dragenter', (e) => {
+                e.preventDefault();
+                dragCounter++;
+                dropZone.classList.remove('hidden');
+                const hasVision = cfg?.settings?.mmproj;
+                hint.textContent = hasVision ? 'Изображение будет проанализировано моделью' : 'Модель не поддерживает изображения — файл будет загружен как вложение';
+            });
+
+            chatArea.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                dragCounter--;
+                if (dragCounter <= 0) {
+                    dragCounter = 0;
+                    dropZone.classList.add('hidden');
+                }
+            });
+
+            chatArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+            });
+
+            chatArea.addEventListener('drop', async (e) => {
+                e.preventDefault();
+                dragCounter = 0;
+                dropZone.classList.add('hidden');
+
+                const files = e.dataTransfer.files;
+                if (!files.length) return;
+
+                const file = files[0];
+                const ext = file.name.split('.').pop().toLowerCase();
+                const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'];
+                const isImage = imageExts.includes(ext);
+
+                if (isImage && !cfg?.settings?.mmproj) {
+                    addSystemMessage('Формат не поддерживается: модель не имеет vision-модуля (mmproj). Подключите mmproj для анализа изображений.');
+                    return;
+                }
+
+                // Upload file
+                const formData = new FormData();
+                formData.append('file', file);
+                try {
+                    const res = await fetch('/api/files/upload', { method: 'POST', body: formData });
+                    const data = await res.json();
+                    if (!data.ok) {
+                        addSystemMessage('Ошибка загрузки файла: ' + (data.error || 'Неизвестная ошибка'));
+                        return;
+                    }
+                    droppedFile = { name: file.name, path: data.path, isImage };
+                    addSystemMessage(`Файл "${file.name}" загружен. Нажмите "Отправить" или добавьте текст.`);
+                } catch (err) {
+                    addSystemMessage('Ошибка загрузки: ' + err.message);
+                }
+            });
+        }
+
+        // Init drag-drop on load
+        document.addEventListener('DOMContentLoaded', initDragDrop);
+
         // Abort controller generation
         function abortGeneration() {
             if (abortController) {
@@ -1669,7 +1976,8 @@
         async function sendMessage() {
             const input = document.getElementById('promptInput');
             const text = input.value.trim();
-            if (!text || isGenerating) return;
+            if (!text && !droppedFile) return;
+            if (isGenerating) return;
             
             if (!serverReady) {
                 alert('Сначала запустите сервер и дождитесь его готовности!');
@@ -1682,11 +1990,25 @@
             if (!currentChatId) {
                 currentChatId = 'chat-' + Date.now();
                 chatCreatedAt = Math.floor(Date.now() / 1000);
-                chatTitle = text.slice(0, 30) + (text.length > 30 ? '...' : '');
+                chatTitle = (text || droppedFile.name).slice(0, 30);
             }
 
-            messages.push({ role: 'user', content: text });
-            addUserMessage(text);
+            // Build message content with optional file
+            let messageContent = text;
+            if (droppedFile) {
+                if (droppedFile.isImage && cfg?.settings?.mmproj) {
+                    messageContent = text || 'Опиши что изображено';
+                    messages.push({ role: 'user', content: messageContent, image: droppedFile.path });
+                } else {
+                    messageContent = text ? `${text}\n\n[Файл: ${droppedFile.name}]` : `[Файл: ${droppedFile.name}]`;
+                    messages.push({ role: 'user', content: messageContent });
+                }
+                addUserMessage(messageContent, droppedFile.isImage ? droppedFile.path : null);
+                droppedFile = null;
+            } else {
+                messages.push({ role: 'user', content: text });
+                addUserMessage(text);
+            }
             
             // Save & update sidebar list immediately after user message
             saveCurrentChat();
@@ -1765,7 +2087,7 @@
                                     }
                                     assistantText += delta;
                                     // Render with a typing cursor `▌`
-                                    textEl.innerHTML = marked.parse(assistantText) + '<span class="typing-cursor"></span>';
+                                    textEl.innerHTML = DOMPurify.sanitize(marked.parse(assistantText)) + '<span class="typing-cursor"></span>';
                                 }
 
                                 if (parsed.usage) {
@@ -1796,7 +2118,7 @@
                 messages.push({ role: 'assistant', content: assistantText });
 
                 // Render final text without typing cursor
-                textEl.innerHTML = marked.parse(assistantText);
+                textEl.innerHTML = DOMPurify.sanitize(marked.parse(assistantText));
 
                 // Calculate final generation speed
                 const tEnd = Date.now();
@@ -1853,16 +2175,18 @@
         }
 
         // Helper to render message content with MD formatting in DOM
-        function renderMessageDOM(role, content) {
+        function renderMessageDOM(role, content, imagePath) {
             const area = document.getElementById('chatArea');
             const div = document.createElement('div');
             
             if (role === 'user') {
+                const imageHtml = imagePath ? `<img src="/api/files/${imagePath.split(/[/\\\\]/).pop()}" class="max-w-xs max-h-48 rounded-lg mb-2 border border-white/10" alt="attachment">` : '';
                 div.className = 'chat-msg flex justify-end';
                 div.innerHTML = `
                     <div class="max-w-[75%] rounded-2xl rounded-br-sm px-4.5 py-3.5 bg-emerald-500/5 border border-emerald-500/20 text-slate-200 shadow-sm prose prose-invert">
                         <div class="text-[9px] font-bold text-emerald-450 tracking-wide uppercase mb-1.5 select-none no-prose">Вы</div>
-                        <div class="message-body text-sm leading-relaxed">${marked.parse(content)}</div>
+                        ${imageHtml}
+                        <div class="message-body text-sm leading-relaxed">${DOMPurify.sanitize(marked.parse(content))}</div>
                     </div>
                 `;
             } else {
@@ -1876,7 +2200,7 @@
                             <div class="flex justify-between items-center mb-1.5 no-prose">
                                 <span class="text-[9px] font-bold text-slate-400 tracking-wide uppercase select-none">Ассистент</span>
                             </div>
-                            <div class="message-body text-sm text-slate-200 leading-relaxed">${marked.parse(content)}</div>
+                            <div class="message-body text-sm text-slate-200 leading-relaxed">${DOMPurify.sanitize(marked.parse(content))}</div>
                         </div>
                     </div>
                 `;
@@ -1886,10 +2210,10 @@
             return div.id || null;
         }
 
-        function addUserMessage(text) {
+        function addUserMessage(text, imagePath) {
             const area = document.getElementById('chatArea');
             if (messages.length === 1) area.innerHTML = '';
-            renderMessageDOM('user', text);
+            renderMessageDOM('user', text, imagePath);
         }
 
         function addAssistantMessage(text) {
@@ -1907,7 +2231,7 @@
                         <div class="flex justify-between items-center mb-1.5 no-prose">
                             <span class="text-[9px] font-bold text-slate-400 tracking-wide uppercase select-none">Ассистент</span>
                         </div>
-                        <div class="message-body text-sm text-slate-200 leading-relaxed">${marked.parse(text)}</div>
+                        <div class="message-body text-sm text-slate-200 leading-relaxed">${DOMPurify.sanitize(marked.parse(text))}</div>
                     </div>
                 </div>
             `;
@@ -3067,7 +3391,8 @@
                         dbg.textContent = debugParts.join(' | ');
                         consoleEl.appendChild(dbg);
                     }
-                    input.value = '';
+            input.value = '';
+            input.focus();
                     loadWebMonitorLogs();
                 } else {
                     progressEl.remove();

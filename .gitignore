@@ -8,3 +8,9 @@ chats/
 *.db-wal
 .mimocode/
 runner_config.json
+clients/*.json
+accounts.json
+user_profiles/
+uploads/
+wireguard/*.key
+wireguard/*.key.pub

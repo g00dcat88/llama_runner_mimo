@@ -340,6 +340,7 @@ DEFAULT_SETTINGS = {
     "system_prompt": "Ты полезный локальный ассистент. Отвечай точно и по делу.",
     "extra_args": "",
     "mmproj": "",
+    "allowed_origins": [],
 }
 
 PRESETS = {
@@ -626,9 +627,8 @@ class LlamaServer:
             self.output_queue.put(line.rstrip())
 
     def _health_check(self) -> bool:
-        base = f"http://{self.config.settings['host']}:{self.config.settings['port']}"
         try:
-            with urllib.request.urlopen(base + "/health", timeout=0.8) as resp:
+            with urllib.request.urlopen(f"http://127.0.0.1:{self.config.settings['port']}/health", timeout=2) as resp:
                 return resp.status < 500
         except (urllib.error.URLError, TimeoutError, OSError):
             return False
@@ -812,9 +812,8 @@ class ModelPool:
         return {sid: slot.model_path for sid, slot in self.slots.items() if slot.model_path}
 
     def _health_check(self, port: int) -> bool:
-        host = self.config.settings["host"]
         try:
-            with urllib.request.urlopen(f"http://{host}:{port}/health", timeout=0.8) as resp:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as resp:
                 return resp.status < 500
         except (urllib.error.URLError, TimeoutError, OSError):
             return False
@@ -845,7 +844,7 @@ def select_folder_via_ps() -> str:
         "if ($f.ShowDialog() -eq 'OK') { $f.SelectedPath }"
     ]
     try:
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         return res.stdout.strip()
     except Exception:
         return ""
@@ -861,19 +860,176 @@ def select_file_via_ps() -> str:
         "if ($f.ShowDialog() -eq 'OK') { $f.FileName }"
     ]
     try:
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         return res.stdout.strip()
     except Exception:
         return ""
 
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 MB upload limit
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(32).hex())
+
 config = AppConfig.load()
 server = LlamaServer(config)
 pool = ModelPool(config)
 
+from account_manager import AccountManager
+accounts = AccountManager(APP_DIR)
+
 from orchestrator_api import orchestrator_bp
 app.register_blueprint(orchestrator_bp)
+
+# ── Global authentication for all Flask routes ──────────────────────
+
+ORCHESTRATOR_PREFIXES = ("/api/orchestrator/", "/api/clients")
+
+
+from flask import session
+
+# ── Auth endpoints ─────────────────────────────────────────────────
+
+@app.route("/api/auth/login", methods=["POST"])
+def api_login():
+    data = request.get_json() or {}
+    username = data.get("username", "").strip()
+    password = data.get("password", "")
+
+    if not username or not password:
+        return jsonify({"ok": False, "error": "Введите логин и пароль"}), 400
+
+    acc = accounts.authenticate(username, password)
+    if acc:
+        session["authenticated"] = True
+        session["username"] = acc.username
+        session["role"] = acc.role
+        return jsonify({"ok": True, "username": acc.username, "role": acc.role})
+
+    return jsonify({"ok": False, "error": "Неверный логин или пароль"}), 401
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def api_logout():
+    session.clear()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/auth/check", methods=["GET"])
+def api_auth_check():
+    if session.get("authenticated"):
+        return jsonify({
+            "authenticated": True,
+            "username": session.get("username", ""),
+            "role": session.get("role", "user"),
+        })
+    return jsonify({"authenticated": False})
+
+
+# ── Account management endpoints ───────────────────────────────────
+
+@app.route("/api/accounts", methods=["GET"])
+def api_list_accounts():
+    if not session.get("authenticated") or session.get("role") != "admin":
+        return jsonify({"ok": False, "error": "Access denied"}), 403
+    accs = accounts.list_all()
+    return jsonify({"ok": True, "accounts": [a.to_dict() for a in accs]})
+
+
+@app.route("/api/accounts", methods=["POST"])
+def api_create_account():
+    if not session.get("authenticated") or session.get("role") != "admin":
+        return jsonify({"ok": False, "error": "Access denied"}), 403
+    data = request.get_json() or {}
+    username = data.get("username", "").strip()
+    password = data.get("password", "")
+    display_name = data.get("display_name", "")
+    role = data.get("role", "user")
+    if not username or not password:
+        return jsonify({"ok": False, "error": "username и password обязательны"}), 400
+    acc = accounts.create(username, password, display_name, role)
+    if not acc:
+        return jsonify({"ok": False, "error": "Аккаунт уже существует"}), 409
+    return jsonify({"ok": True, "account": acc.to_dict()})
+
+
+@app.route("/api/accounts/<username>", methods=["PUT"])
+def api_update_account(username):
+    if not session.get("authenticated") or session.get("role") != "admin":
+        return jsonify({"ok": False, "error": "Access denied"}), 403
+    data = request.get_json() or {}
+    acc = accounts.update(username, **data)
+    if not acc:
+        return jsonify({"ok": False, "error": "Аккаунт не найден"}), 404
+    return jsonify({"ok": True, "account": acc.to_dict()})
+
+
+@app.route("/api/accounts/<username>", methods=["DELETE"])
+def api_delete_account(username):
+    if not session.get("authenticated") or session.get("role") != "admin":
+        return jsonify({"ok": False, "error": "Access denied"}), 403
+    if accounts.delete(username):
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "Аккаунт не найден или это admin"}), 404
+
+
+@app.before_request
+def check_app_auth():
+    # Allow the UI page without auth
+    if request.path == "/":
+        return
+    # Allow auth and account management endpoints
+    if request.path.startswith("/api/auth/") or request.path.startswith("/api/accounts"):
+        return
+    # Let orchestrator blueprint handle its own auth
+    if any(request.path.startswith(p) for p in ORCHESTRATOR_PREFIXES):
+        return
+    # Localhost + WireGuard subnet (10.10.0.x) always allowed
+    if request.remote_addr in ("127.0.0.1", "::1") or request.remote_addr.startswith("10.10.0."):
+        return
+    # Session-based auth
+    if session.get("authenticated"):
+        return
+
+    # Multi-client mode: check X-Client-ID + X-Client-API-Key
+    client_id = request.headers.get("X-Client-ID")
+    client_api_key = request.headers.get("X-Client-API-Key")
+    if client_id and client_api_key:
+        from orchestrator_api import _client_registry
+        client = _client_registry.get(client_id)
+        if not client or not client.enabled:
+            return jsonify({"ok": False, "error": "Client not found or disabled"}), 401
+        if client.api_key != client_api_key:
+            return jsonify({"ok": False, "error": "Invalid client API key"}), 401
+        return
+
+    # Global API key check (config takes precedence over env)
+    expected_key = config.settings.get("orchestrator_api_key") or os.environ.get("ORCHESTRATOR_API_KEY")
+    if not expected_key:
+        return jsonify({"ok": False, "error": "Server requires authentication. Set ORCHESTRATOR_API_KEY."}), 401
+    api_key = request.headers.get("X-Orchestrator-API-Key")
+    if api_key != expected_key:
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    # CORS for trusted clients
+    origin = request.headers.get("Origin")
+    allowed = config.settings.get("allowed_origins", [])
+    if origin and allowed:
+        # Support both exact matches and IP-based origins (http://IP:port)
+        origin_allowed = origin in allowed or any(
+            origin.startswith(f"http://{a}") or origin.startswith(f"https://{a}")
+            for a in allowed if a != "*"
+        )
+        if "*" in allowed or origin_allowed:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Orchestrator-API-Key, X-Client-ID, X-Client-API-Key"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    return response
 
 
 @app.route("/")
@@ -895,7 +1051,6 @@ def parse_params(filename: str) -> tuple[str, float]:
     return "", 0.0
 
 
-@app.route("/api/models")
 def find_mmproj_for_model(model_path: Path) -> str | None:
     """Find matching mmproj file for a model."""
     model_dir = model_path.parent
@@ -923,6 +1078,7 @@ def find_mmproj_for_model(model_path: Path) -> str | None:
     return None
 
 
+@app.route("/api/models")
 def api_models():
     models = []
     seen = set()
@@ -1054,14 +1210,17 @@ def api_open_explorer():
     path_str = data.get("path", "")
     if not path_str:
         return jsonify({"ok": False, "error": "Путь не указан"})
-    path = Path(path_str)
-    if not path.exists():
-        return jsonify({"ok": False, "error": "Путь не существует"})
+    path = Path(path_str).resolve()
+    # Restrict to known safe directories
+    allowed_bases = [UPLOADS_DIR.resolve(), CHATS_DIR.resolve(), Path(config.models_dir).resolve()]
+    allowed = any(str(path).startswith(str(b)) for b in allowed_bases if str(b) != ".")
+    if not allowed or not path.exists():
+        return jsonify({"ok": False, "error": "Путь не существует или недоступен"})
     try:
         if path.is_file():
-            subprocess.run(f'explorer /select,"{path}"', creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+            subprocess.run(["explorer", f'/select,"{path}"'], creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
         else:
-            os.startfile(path)
+            os.startfile(str(path))
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -1446,8 +1605,9 @@ def api_get_chats():
 
 @app.route("/api/chats/<chat_id>", methods=["GET"])
 def api_get_chat(chat_id):
-    f = CHATS_DIR / f"{chat_id}.json"
-    if not f.exists():
+    safe_id = chat_id.replace("/", "_").replace("\\", "_").replace("..", "_")
+    f = (CHATS_DIR / f"{safe_id}.json").resolve()
+    if not f.exists() or not str(f).startswith(str(CHATS_DIR.resolve())):
         return jsonify({"ok": False, "error": "Диалог не найден"}), 404
     try:
         data = json.loads(f.read_text(encoding="utf-8"))
@@ -1458,14 +1618,15 @@ def api_get_chat(chat_id):
 
 @app.route("/api/chats/<chat_id>", methods=["POST"])
 def api_save_chat(chat_id):
+    safe_id = chat_id.replace("/", "_").replace("\\", "_").replace("..", "_")
     data = request.get_json() or {}
     messages = data.get("messages", [])
     title = data.get("title", "Новый диалог").strip()
     created_at = data.get("created_at", time.time())
 
-    f = CHATS_DIR / f"{chat_id}.json"
+    f = CHATS_DIR / f"{safe_id}.json"
     chat_data = {
-        "id": chat_id,
+        "id": safe_id,
         "title": title,
         "created_at": created_at,
         "messages": messages
@@ -1479,8 +1640,9 @@ def api_save_chat(chat_id):
 
 @app.route("/api/chats/<chat_id>", methods=["DELETE"])
 def api_delete_chat(chat_id):
-    f = CHATS_DIR / f"{chat_id}.json"
-    if f.exists():
+    safe_id = chat_id.replace("/", "_").replace("\\", "_").replace("..", "_")
+    f = (CHATS_DIR / f"{safe_id}.json").resolve()
+    if f.exists() and str(f).startswith(str(CHATS_DIR.resolve())):
         try:
             f.unlink()
             return jsonify({"ok": True})
@@ -1542,9 +1704,9 @@ def api_list_files():
 
 @app.route("/api/files/<filename>", methods=["GET"])
 def api_get_file(filename):
-    safe_name = filename.replace("/", "_").replace("\\", "_")
-    f = UPLOADS_DIR / safe_name
-    if not f.exists():
+    safe_name = filename.replace("/", "_").replace("\\", "_").replace("..", "_")
+    f = (UPLOADS_DIR / safe_name).resolve()
+    if not f.exists() or not str(f).startswith(str(UPLOADS_DIR.resolve())):
         return jsonify({"ok": False, "error": "File not found"}), 404
     from flask import send_file
     return send_file(str(f))
@@ -1552,13 +1714,15 @@ def api_get_file(filename):
 
 @app.route("/api/files/<filename>", methods=["DELETE"])
 def api_delete_file(filename):
-    safe_name = filename.replace("/", "_").replace("\\", "_")
-    f = UPLOADS_DIR / safe_name
-    if f.exists():
+    safe_name = filename.replace("/", "_").replace("\\", "_").replace("..", "_")
+    f = (UPLOADS_DIR / safe_name).resolve()
+    if f.exists() and str(f).startswith(str(UPLOADS_DIR.resolve())):
         f.unlink()
         return jsonify({"ok": True})
     return jsonify({"ok": False, "error": "File not found"}), 404
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    # 0.0.0.0 — принимать подключения с WireGuard (10.10.0.1) и localhost
+    # Аутентификация по API-ключу обязательна для внешних подключений
+    app.run(host="0.0.0.0", port=5000, debug=False)

@@ -498,3 +498,110 @@ POST /api/models/vision
 
 - Убран повторный `from tools import ERPIntegrationTools` в `orchestrator_api.py`
 - Убран неиспользуемый `RouterLLM` из импортов (оставлен только `classify_complexity`)
+
+---
+
+## Безопасность — комплексный аудит
+
+### Глобальная аутентификация (`app.py`)
+
+**Было:** Только `orchestrator_api.py` имел `before_request` проверку. Flask-маршруты (модели, чат, файлы, сервер) были полностью открыты.
+
+**Стало:** Добавлен `@app.before_request` на уровне Flask:
+- `/` (UI) — без аутентификации
+- `/api/auth/*` — без аутентификации
+- localhost (`127.0.0.1`, `::1`) — без аутентификации
+- WireGuard (`10.10.0.x`) — без аутентификации
+- Остальные — требуют сессию или API-ключ
+
+### Account Manager (`account_manager.py`)
+
+Новый модуль для управления аккаунтами:
+- `Account` dataclass: username, password_hash, role, enabled, tools
+- `AccountManager`: CRUD операции, аутентификация, хранение в `accounts.json`
+- Хеширование паролей (SHA-256)
+- Роли: `admin` (всё), `user` (чтение+запросы), `readonly` (только чтение)
+- Аккаунт `admin` создаётся автоматически при первом запуске
+
+### API аутентификации
+
+| Эндпоинт | Метод | Описание |
+|-----------|-------|----------|
+| `/api/auth/login` | POST | Вход (username + password) → session cookie |
+| `/api/auth/logout` | POST | Выход (очистка сессии) |
+| `/api/auth/check` | GET | Проверка сессии |
+| `/api/accounts` | GET | Список аккаунтов (admin) |
+| `/api/accounts` | POST | Создать аккаунт (admin) |
+| `/api/accounts/<user>` | PUT | Обновить аккаунт (admin) |
+| `/api/accounts/<user>` | DELETE | Удалить аккаунт (admin) |
+
+### Два режима аутентификации
+
+1. **Веб-интерфейс:** Session-based (логин/пароль → cookie)
+2. **API:** Header-based (`X-Orchestrator-API-Key`)
+
+Приоритет API-ключа: `config.settings` > `os.environ`
+
+### Исправления уязвимостей
+
+| Уязвимость | Файл:строка | Описание |
+|------------|-------------|----------|
+| Path traversal | `app.py:1585,1596` | GET/DELETE файлов: добавлена замена `..` + проверка `resolve().startswith()` |
+| Path traversal | `app.py:1560,1578,1595` | Chat ID: добавлена санитизация |
+| Command injection | `app.py:1159` | `subprocess.run(f'explorer ...')` → list-form + ограничение путей |
+| XSS | `templates/index.html` | `marked.parse()` обёрнут в `DOMPurify.sanitize()` |
+| Upload size | `app.py:870` | Добавлен `MAX_CONTENT_LENGTH = 100 MB` |
+| Secret key | `app.py:871` | Добавлен `app.secret_key` из env или random |
+
+### Security Headers
+
+Добавлен `@app.after_request`:
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `X-XSS-Protection: 1; mode=block`
+
+### CORS
+
+Настройка через `runner_config.json` → `settings.allowed_origins`:
+- `[]` — запретить все (по умолчанию)
+- `["*"]` — разрешить все
+- `["192.168.1.100"]` — только конкретный IP
+- `["https://domain.com"]` — только конкретный домен
+
+### WireGuard интеграция
+
+- Flask слушает на `0.0.0.0:5000` (принимает с WireGuard)
+- Подсеть `10.10.0.x` доверена (без аутентификации)
+- Конфиги в `wireguard/` (server.conf, client-peer.conf)
+
+### Файловая безопасность
+
+- `uploads/` — ограниченный доступ
+- `clients/*.json` — добавлен в `.gitignore`
+- `runner_config.json` — в `.gitignore`
+- `.env` — в `.gitignore`
+
+### Исправлен баг контекста
+
+**Было:** `TokenManager(max_context=config.conversation_max_messages)` — использовалось 20 как лимит токенов.
+
+**Стало:** `TokenManager(max_context=ctx_size)` — используется реальный размер контекста модели (8192+).
+
+### Увеличен лимит сообщений
+
+`conversation_max_messages`: 20 → 50
+
+### Drag & Drop в чат
+
+Добавлена поддержка перетаскивания файлов в область чата:
+- Изображения с vision — автоматический анализ
+- Изображения без vision — сообщение "Формат не поддерживается"
+- Другие файлы — загрузка и вложение
+
+### Интерфейс управления (Настройки → Безопасность)
+
+Новая вкладка в модалке настроек:
+- Аккаунты (создание/удаление/роль)
+- API-ключи клиентов
+- CORS настройки
+- Информация о WireGuard

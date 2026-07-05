@@ -815,7 +815,10 @@ def run_orchestrator():
         metrics = MetricsCollector(str(project_dir / "metrics.db"))
         input_guard = InputGuardrails()
         output_guard = OutputGuardrails()
-        token_mgr = TokenManager(max_context=config.conversation_max_messages or 4096)
+        # Use model's ctx_size for token budget, not message count
+        from app import config as runner_config
+        ctx_size = runner_config.settings.get("ctx_size", 8192)
+        token_mgr = TokenManager(max_context=ctx_size)
 
         rag_engine = BM25SearchEngine()
         knowledge_dir = project_dir / "knowledge_base"
