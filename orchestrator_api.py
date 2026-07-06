@@ -16,10 +16,12 @@ def is_server_online(url: str) -> bool:
         return False
 
 # Add llm_orchestrator to path so we can import gateway, tools, skills, etc.
+# Insert at position 0 to ensure local modules take priority over
+# any installed packages with the same name (e.g. hermes 'gateway' package).
 APP_DIR = Path(__file__).resolve().parent
-ORCHESTRATOR_DIR = APP_DIR.parent / "llm_orchestrator"
+ORCHESTRATOR_DIR = APP_DIR.parent / "llm_orchestrator-master"
 if str(ORCHESTRATOR_DIR) not in sys.path:
-    sys.path.append(str(ORCHESTRATOR_DIR))
+    sys.path.insert(0, str(ORCHESTRATOR_DIR))
 
 from gateway import BaseLLM, create_llm_from_config
 from providers import LlamaServerLLM, MockLLM, OpenAICompatibleLLM, AnthropicLLM, PROVIDER_TYPES

@@ -837,7 +837,7 @@ class ModelPool:
 
 def select_folder_via_ps() -> str:
     cmd = [
-        "powershell", "-NoProfile", "-Command",
+        "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
         "Add-Type -AssemblyName System.Windows.Forms; "
         "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
         "$f.Description = 'Выберите папку с моделями'; "
@@ -845,14 +845,18 @@ def select_folder_via_ps() -> str:
     ]
     try:
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        return res.stdout.strip()
-    except Exception:
+        lines = [l.strip() for l in res.stdout.splitlines() if l.strip()]
+        path = lines[-1] if lines else ""
+        print(f"[setup] select_folder_via_ps returned: '{path}'")
+        return path
+    except Exception as e:
+        print(f"[setup] select_folder_via_ps error: {e}")
         return ""
 
 
 def select_file_via_ps() -> str:
     cmd = [
-        "powershell", "-NoProfile", "-Command",
+        "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
         "Add-Type -AssemblyName System.Windows.Forms; "
         "$f = New-Object System.Windows.Forms.OpenFileDialog; "
         "$f.Filter = 'GGUF Models (*.gguf)|*.gguf'; "
@@ -861,8 +865,12 @@ def select_file_via_ps() -> str:
     ]
     try:
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        return res.stdout.strip()
-    except Exception:
+        lines = [l.strip() for l in res.stdout.splitlines() if l.strip()]
+        path = lines[-1] if lines else ""
+        print(f"[setup] select_file_via_ps returned: '{path}'")
+        return path
+    except Exception as e:
+        print(f"[setup] select_file_via_ps error: {e}")
         return ""
 
 
@@ -1113,17 +1121,24 @@ def api_models():
             except Exception:
                 pass
 
-    valid_customs = []
     for c_str in config.custom_models:
+        if not c_str:
+            continue
         c = Path(c_str)
-        if c.exists() and c.is_file():
-            if "mmproj" in c.name.lower():
-                continue
-            m_str = str(c.resolve())
-            valid_customs.append(m_str)
-            if m_str in seen:
-                continue
-            seen.add(m_str)
+        if "mmproj" in c.name.lower():
+            continue
+        m_str = str(c.resolve())
+        if m_str in seen:
+            continue
+        seen.add(m_str)
+
+        exists = False
+        try:
+            exists = c.exists() and c.is_file()
+        except Exception:
+            pass
+
+        if exists:
             size_gb = c.stat().st_size / (1024 ** 3)
             p_str, p_num = parse_params(c.name)
             mmproj = find_mmproj_for_model(c)
@@ -1139,10 +1154,21 @@ def api_models():
                 "mmproj": mmproj,
                 "has_vision": mmproj is not None,
             })
-
-    if len(valid_customs) != len(config.custom_models):
-        config.custom_models = valid_customs
-        config.save()
+        else:
+            print(f"[API] Модель '{c_str}' не найдена или недоступна на сервере.")
+            models.append({
+                "path": c_str,
+                "name": c.name if c.name else c_str,
+                "folder": "Индивидуальные файлы (Недоступен)",
+                "size_gb": 0.0,
+                "selected": c_str == config.selected_model,
+                "custom": True,
+                "params": "N/A",
+                "params_num": 0.0,
+                "mmproj": None,
+                "has_vision": False,
+                "error": "Файл не найден или недоступен",
+            })
 
     return jsonify(models)
 
