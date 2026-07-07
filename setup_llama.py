@@ -15,7 +15,7 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parent
 INSTALL_DIR = APP_DIR / "llama_cpp"
 VERSION_FILE = INSTALL_DIR / "version.json"
-GITHUB_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
+GITHUB_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10"
 
 # V100 Volta-optimized binaries from andrewleech/v100-llm-kit
 V100_WIN_URL = "https://github.com/andrewleech/v100-llm-kit/releases/download/v1.0/llama.cpp-gemma4-win-sm70.zip"
@@ -72,7 +72,7 @@ def get_installed_version() -> str:
     return ""
 
 
-def fetch_latest_release() -> dict:
+def fetch_recent_releases() -> list[dict]:
     req = urllib.request.Request(GITHUB_API, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read().decode())
@@ -89,9 +89,9 @@ def find_assets(release: dict, cpu_only: bool) -> tuple[str, list]:
             return tag, [(avx_asset, assets[avx_asset])]
         raise RuntimeError("CPU-версия не найдена в релизе")
 
-    # CUDA build for Windows
+    # CUDA build for Windows (exclude cudart standalone zip)
     cuda_asset = next(
-        (k for k in assets if "bin-win-cuda" in k and "x64" in k and k.endswith(".zip")), None
+        (k for k in assets if "bin-win-cuda" in k and "x64" in k and k.endswith(".zip") and not k.startswith("cudart-")), None
     )
     if not cuda_asset:
         raise RuntimeError("CUDA-версия не найдена в релизе")
@@ -181,8 +181,17 @@ def setup(cpu_only: bool = False, force: bool = False) -> bool:
         selected_assets = [(asset_name, url)]
     else:
         try:
-            release = fetch_latest_release()
-            tag, selected_assets = find_assets(release, cpu_only)
+            releases = fetch_recent_releases()
+            tag = None
+            selected_assets = []
+            for r_entry in releases:
+                try:
+                    tag, selected_assets = find_assets(r_entry, cpu_only)
+                    break
+                except Exception:
+                    continue
+            if not selected_assets:
+                raise RuntimeError("Не удалось найти подходящий релиз с Windows-бинарниками в последних 10 релизах")
         except Exception as e:
             if installed:
                 print(f"[setup] Не удалось проверить обновления: {e}")
