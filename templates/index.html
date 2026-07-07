@@ -1600,9 +1600,11 @@
             }
 
             models.forEach(m => {
+                try {
                 const isSelected = m.path === cfg.selected_model;
-                if (isSelected) {
-                    document.getElementById('selectedModelLabel').textContent = m.name;
+                const label = document.getElementById('selectedModelLabel');
+                if (isSelected && label) {
+                    label.textContent = m.name;
                 }
 
                 // Folder short label
@@ -1639,7 +1641,14 @@
                         : 'bg-slate-900/40 hover:bg-slate-900/80 border-white/5 hover:border-white/10 shadow-sm'
                 }`;
 
-                const isVisionActive = cfg.settings.mmproj && cfg.settings.mmproj === m.mmproj;
+                let isVisionActive = false;
+                try {
+                    const settings = cfg.settings || {};
+                    isVisionActive = settings.mmproj && settings.mmproj === m.mmproj;
+                } catch (e) {
+                    console.error("Error checking vision active status:", e);
+                }
+
                 const visionIcon = m.has_vision
                     ? `<button data-model="${m.path}" data-mmproj="${m.mmproj}" class="toggle-vision-btn p-1 rounded-lg transition-all ${isVisionActive ? 'text-violet-400 bg-violet-500/10' : 'text-slate-500 hover:text-violet-400 hover:bg-white/5'} opacity-0 group-hover/card:opacity-100 ${isVisionActive ? '!opacity-100' : ''}" title="${isVisionActive ? 'Vision активен' : 'Включить Vision (мультимодальность)'}">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
@@ -1681,6 +1690,9 @@
                 }
                 div.onclick = () => selectModel(m.path, div, m.name);
                 list.appendChild(div);
+                } catch (err) {
+                    console.error("Error rendering model item:", m.name, err);
+                }
             });
         }
 
