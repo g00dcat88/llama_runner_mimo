@@ -490,6 +490,22 @@ class AppConfig:
             config.settings.update(data.get("settings", {}))
             config.load_profile = data.get("load_profile", "single")
             config.model_slots = data.get("model_slots", {})
+
+            # Auto-healing path check for llama-server.exe
+            local_server_path = APP_DIR / "llama_cpp" / "llama-server.exe"
+            if not Path(config.server_exe).exists() and local_server_path.exists():
+                config.server_exe = str(local_server_path.resolve())
+                config.llama_root = str((APP_DIR / "llama_cpp").resolve())
+                # Update models_dir if it does not exist
+                if not Path(config.models_dir).exists():
+                    config.models_dir = str((APP_DIR / "llama_cpp" / "models").resolve())
+                    if config.models_dir not in config.models_dirs:
+                        config.models_dirs.append(config.models_dir)
+                try:
+                    config.save()
+                except Exception:
+                    pass
+
             return config
         except (OSError, json.JSONDecodeError):
             return cls()
