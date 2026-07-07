@@ -909,13 +909,48 @@ def run_orchestrator():
 
         # ── Detect onboarding completion ──────────────────────────────
         is_onboarding = is_new_user and not _user_profiles.is_onboarded(user_id)
-        if not is_onboarding and is_new_user:
-            # If model answered the onboarding questions, try to extract info
-            _user_profiles.complete_onboarding(user_id, {
-                "name": user_id,
-                "role": "",
-                "department": "",
-            })
+        if is_onboarding:
+            history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history[-6:]])
+            history_text += f"\nuser: {prompt}\nassistant: {result.get('content', '')}"
+            
+            extraction_prompt = f"""Разговор пользователя и ассистента:
+{history_text}
+
+Ассистент проводит первичный опрос (выясняет имя, роль, отдел, задачи, предпочтения).
+Пожалуйста, определи, предоставил ли пользователь к этому моменту свое имя и роль/должность?
+Если да, извлеки эти данные в формате JSON:
+{{
+  "onboarding_complete": true,
+  "name": "Имя пользователя",
+  "role": "Роль/должность",
+  "department": "Отдел (если указан)",
+  "rules": ["правило 1", "правило 2" (если указаны)],
+  "preferences": {{"формат": "кратко" (если указаны)}}
+}}
+Если пользователь еще не ответил на базовые вопросы (имя и роль), верни:
+{{
+  "onboarding_complete": false
+}}
+Отвечай строго в формате JSON, без лишнего текста."""
+
+            try:
+                extraction_res = llm.generate(prompt=extraction_prompt)
+                if extraction_res.get("ok"):
+                    content = extraction_res.get("content", "").strip()
+                    if content.startswith("```"):
+                        content = content.split("```")[1]
+                        if content.startswith("json"):
+                            content = content[4:]
+                        content = content.strip()
+                    if content.endswith("```"):
+                        content = content[:-3].strip()
+                    
+                    info = json.loads(content)
+                    if info.get("onboarding_complete"):
+                        _user_profiles.complete_onboarding(user_id, info)
+                        is_onboarding = False
+            except Exception as e:
+                logger.error("Error in auto-onboarding extraction: %s", e)
 
         return jsonify({
             "ok": result.get("ok", False),
