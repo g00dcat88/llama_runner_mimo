@@ -1641,7 +1641,7 @@
 
                 const isVisionActive = cfg.settings.mmproj && cfg.settings.mmproj === m.mmproj;
                 const visionIcon = m.has_vision
-                    ? `<button onclick="toggleVision(this, event)" data-model="${m.path}" data-mmproj="${m.mmproj}" class="p-1 rounded-lg transition-all ${isVisionActive ? 'text-violet-400 bg-violet-500/10' : 'text-slate-500 hover:text-violet-400 hover:bg-white/5'} opacity-0 group-hover/card:opacity-100 ${isVisionActive ? '!opacity-100' : ''}" title="${isVisionActive ? 'Vision активен' : 'Включить Vision (мультимодальность)'}">
+                    ? `<button data-model="${m.path}" data-mmproj="${m.mmproj}" class="toggle-vision-btn p-1 rounded-lg transition-all ${isVisionActive ? 'text-violet-400 bg-violet-500/10' : 'text-slate-500 hover:text-violet-400 hover:bg-white/5'} opacity-0 group-hover/card:opacity-100 ${isVisionActive ? '!opacity-100' : ''}" title="${isVisionActive ? 'Vision активен' : 'Включить Vision (мультимодальность)'}">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                         </button>`
                     : '';
@@ -1653,7 +1653,7 @@
                         </div>
                         <div class="flex items-center gap-0.5 opacity-0 group-hover/card:opacity-100 transition-all">
                             ${visionIcon}
-                            <button onclick="openExplorer('${m.path}', event)" class="p-1 text-slate-500 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all" title="Показать в проводнике">
+                            <button class="open-explorer-btn p-1 text-slate-500 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all" title="Показать в проводнике">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5M5 19v-2m14 2a2 2 0 002-2v-3M2 22V2h20v20H2z"/></svg>
                             </button>
                         </div>
@@ -1671,6 +1671,14 @@
                         </div>
                     </div>
                 `;
+                const visionBtn = div.querySelector('.toggle-vision-btn');
+                if (visionBtn) {
+                    visionBtn.onclick = (e) => toggleVision(visionBtn, e);
+                }
+                const openBtn = div.querySelector('.open-explorer-btn');
+                if (openBtn) {
+                    openBtn.onclick = (e) => openExplorer(m.path, e);
+                }
                 div.onclick = () => selectModel(m.path, div, m.name);
                 list.appendChild(div);
             });
